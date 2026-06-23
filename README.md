@@ -3,6 +3,8 @@
 VortNotes is a Flask + SQLite notes app with multi-database support, uploads,
 content/media grids, themes, DB ZIP backup/import, and Docker/Unraid support.
 
+![VortNotes content dashboard](docs/images/vortnotes-content.png)
+
 Current release: **1.0.7**. VortNotes is distributed under the MIT License; see
 `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
@@ -19,6 +21,15 @@ vorticon/vortnotes:latest
 
 For a focused setup walkthrough, see [INSTALL.md](INSTALL.md). It includes
 Unraid, PC, Raspberry Pi, Docker Compose, HTTPS, update, and backup examples.
+
+## Features
+
+- Multi-database notes with optional per-database passwords
+- Rich text editing, uploads, media browsing, and content tiles
+- Built-in apps and games, including sticky notes and ambient focus
+- Home Assistant shortcuts and read-only public access options
+- Admin settings for themes, backups, upload limits, permissions, and HTTPS
+- Docker-first deployment for Unraid, PCs, servers, and Raspberry Pi
 
 ## Data Storage
 
