@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:560px; margin: 0 auto;">
+  <h2 style="margin-top:0; text-align:center;">Select Database</h2>
+
+  <div class="muted" style="text-align:center; margin-top:6px; margin-bottom:10px;">
+    Currently selected: <strong>{{ selected_db }}</strong>
+  </div>
+
+  {% if error %}
+    <div class="pill danger" style="justify-content:center;">{{ error }}</div>
+    <div style="height:12px;"></div>
+  {% endif %}
+
+  <div id="db-help" class="muted" style="text-align:center; margin-bottom:12px;"></div>
+
+  <form method="post" action="{{ url_for('db_select') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ next_url }}">
+
+    <label class="label" for="db_name">Database</label>
+    <select id="db_name" class="input" name="name" style="width:100%;">
+      {% for db in dbs %}
+        <option value="{{ db }}" {% if db == selected_db %}selected{% endif %}>{{ db }}</option>
+      {% endfor %}
+    </select>
+
+    <div style="height:12px;"></div>
+
+    <label class="label" for="db_password">Password (optional)</label>
+    <input
+      id="db_password"
+      class="input"
+      type="password"
+      name="password"
+      placeholder="Enter password to unlock (full access)"
+      autocomplete="current-password"
+    >
+
+    <div id="remember_wrap" style="margin-top:10px; display:none;">
+      <label class="muted" style="display:flex; gap:8px; justify-content:center; align-items:center;">
+        <input type="checkbox" name="remember" value="1">
+        Remember access to all databases until logout
+      </label>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button class="btn primary" type="submit" style="flex:1;">Open</button>
+      <a class="btn" href="{{ url_for('index') }}" style="flex:1; text-align:center;">Cancel</a>
+    </div>
+  </form>
+
+  <hr style="margin:16px 0; opacity:0.25;">
+
+  <form method="post" action="{{ url_for('logout') }}">
+    {{ csrf_field() }}
+    <button class="btn" type="submit" style="width:100%;">Log out</button>
+  </form>
+</div>
+
+<script>
+  (function () {
+    const meta = {{ db_meta_json|safe }};
+    const sel = document.getElementById('db_name');
+    const pwd = document.getElementById('db_password');
+    const help = document.getElementById('db-help');
+    const rememberWrap = document.getElementById('remember_wrap');
+
+    function applyState(name) {
+      const m = meta[name] || {has_password:false, read_without_password:false};
+      const hasPwd = !!m.has_password;
+      const canRead = !!m.read_without_password;
+
+      pwd.disabled = !hasPwd;
+      pwd.value = '';
+
+      if (!hasPwd) {
+        pwd.placeholder = 'No password set for this database';
+        help.textContent = 'This database is not password protected.';
+        rememberWrap.style.display = 'none';
+        return;
+      }
+
+      pwd.placeholder = 'Enter password to unlock (full access)';
+      rememberWrap.style.display = 'block';
+      if (canRead) {
+        help.textContent = 'Read-only is allowed without a password. Enter the password to gain full access (create/edit/delete).';
+      } else {
+        help.textContent = 'This database is password protected. Enter the password to open it.';
+      }
+    }
+
+    sel.addEventListener('change', () => applyState(sel.value));
+    applyState(sel.value);
+  })();
+</script>
+{% endblock %}

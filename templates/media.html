@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <h2 style="margin:0;">Media</h2>
+
+    {% if edit_mode or can_edit %}
+      <div class="seg-group">
+        {% if edit_mode %}
+          <a class="btn" href="{{ url_for('media') }}">Done</a>
+        {% else %}
+          {% if can_edit %}
+            <a class="btn" href="{{ url_for('media_edit') }}">Edit</a>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="muted" style="margin-top:8px;">
+    Media is stored in the currently selected database.
+  </div>
+
+  {% if error %}
+    <div style="height:10px;"></div>
+    <div class="pill danger">{{ error }}</div>
+  {% endif %}
+
+  {% if edit_mode %}
+    <hr style="margin:14px 0; opacity:0.25;">
+
+    <form method="post" action="{{ url_for('media_edit') }}" enctype="multipart/form-data" onsubmit="return vnMediaBeforeSubmit()">
+      {{ csrf_field() }}
+
+      <div class="label">Upload media</div>
+      <input class="input" style="padding: 8px 10px;" type="file" name="media_files" multiple accept="image/*,audio/*,video/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp3,.wav,.ogg,.m4a,.mp4,.webm,.mov" />
+      <div class="help">Tip: images, audio, and video are supported. Uploading more will append to the end.</div>
+
+      <div style="display:flex; gap:10px; margin-top:12px; justify-content:center;">
+        <button class="btn primary" type="submit">Save changes</button>
+      </div>
+
+      <input type="hidden" name="media_state" id="media_state" value="">
+    </form>
+
+    <div style="height:14px;"></div>
+    <div class="muted" style="text-align:center;">Reorder media: drag tiles to rearrange.</div>
+  {% endif %}
+
+  <div style="height:12px;"></div>
+
+  {% if items|length == 0 %}
+    <div class="muted" style="text-align:center; padding: 16px 0;">No media yet.</div>
+  {% else %}
+    <div id="mediaGrid" class="links-desktop-grid media-desktop-grid">
+      {% for m in items %}
+        <div class="link-tile media-tile {% if edit_mode %}link-edit-tile reorder-item{% endif %}" data-mid="{{ m.id }}" data-url="{{ m.url }}" data-mime="{{ m.mime }}" {% if edit_mode %}draggable="true"{% endif %}>
+          {% if edit_mode %}
+            <form method="post" action="{{ url_for('media_delete', media_id=m.id) }}" style="margin:0;">
+              {{ csrf_field() }}
+              <button type="submit" class="attach-delete-x" title="Delete" aria-label="Delete">×</button>
+            </form>
+            <div class="attach-badges" aria-hidden="true">
+              <div class="order-pill">#<span class="order-label">{{ loop.index }}</span></div>
+            </div>
+          {% endif %}
+
+          {% if edit_mode %}
+            <div class="attach-link attach-link--edit" draggable="false" title="{{ m.original_name|e }}">
+          {% else %}
+            <a class="attach-link" href="#" draggable="false" onclick="return vnOpenMedia('{{ m.url }}','{{ m.mime }}','{{ m.original_name|e }}');" title="{{ m.original_name|e }}">
+          {% endif %}
+
+              <div class="attach-thumb link-thumb media-thumb">
+                {% if m.is_image %}
+                  <img src="{{ m.url }}" alt="{{ m.original_name|e }}">
+                {% elif m.is_audio %}
+                  <div class="attach-fileicon">🎵</div>
+                {% elif m.is_video %}
+                  <div class="attach-fileicon">🎬</div>
+                {% else %}
+                  <div class="attach-fileicon">📎</div>
+                {% endif %}
+              </div>
+              <div class="attach-name">{{ m.original_name }}</div>
+
+          {% if edit_mode %}
+            </div>
+          {% else %}
+            </a>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<!-- Media viewer modal -->
+<div id="mediaViewBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="mediaViewTitle">
+  <div class="vn-modal" style="width:85vw; height:85vh; max-width:none; display:flex; flex-direction:column;">
+    <div class="vn-modal-header">
+      <div id="mediaViewTitle" class="vn-modal-title">Media</div>
+      <a id="mediaViewDownloadBtn" class="btn" href="#" download style="padding:6px 10px; font-size:13px; line-height:1; margin-right:8px;">Download</a>
+      <button type="button" class="vn-modal-close" id="mediaViewCloseBtn" aria-label="Close">×</button>
+    </div>
+    <div class="vn-modal-body" style="flex:1; overflow:hidden;">
+      <div id="mediaViewBody" class="vn-media-view"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function vnOpenMedia(url, mime, title){
+  const bd = document.getElementById('mediaViewBackdrop');
+  const body = document.getElementById('mediaViewBody');
+  const tt = document.getElementById('mediaViewTitle');
+  const dl = document.getElementById('mediaViewDownloadBtn');
+  if (!bd || !body) return false;
+  if (tt) tt.textContent = title || 'Media';
+  if (dl){
+    dl.href = url;
+    // Try to set a useful filename
+    const safe = (title || 'media').replace(/[^a-z0-9._-]+/gi,'_');
+    dl.setAttribute('download', safe);
+  }
+  body.innerHTML = '';
+  mime = (mime || '').toLowerCase();
+
+  if (mime.startsWith('image/')){
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = title || '';
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '100%';
+    img.style.height = 'auto';
+    img.style.display = 'block';
+    img.style.margin = '0 auto';
+    body.appendChild(img);
+  } else if (mime.startsWith('audio/')){
+    const a = document.createElement('audio');
+    a.controls = true;
+    a.src = url;
+    a.style.width = '100%';
+    body.appendChild(a);
+  } else if (mime.startsWith('video/')){
+    const v = document.createElement('video');
+    v.controls = true;
+    v.src = url;
+    v.style.width = '100%';
+    v.style.maxHeight = '100%';
+    body.appendChild(v);
+  } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Open file';
+    body.appendChild(a);
+  }
+
+  bd.classList.remove('hidden');
+  return false;
+}
+
+function vnCloseMedia(){
+  const bd = document.getElementById('mediaViewBackdrop');
+  const body = document.getElementById('mediaViewBody');
+  if (body) body.innerHTML = '';
+  if (bd) bd.classList.add('hidden');
+}
+
+(function(){
+  const bd = document.getElementById('mediaViewBackdrop');
+  const closeBtn = document.getElementById('mediaViewCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', vnCloseMedia);
+  if (bd) bd.addEventListener('click', (e) => { if (e.target === bd) vnCloseMedia(); });
+  document.addEventListener('keydown', (e) => {
+    if (bd && !bd.classList.contains('hidden') && e.key === 'Escape') vnCloseMedia();
+  });
+})();
+
+{% if edit_mode %}
+(function(){
+  // Drag/reorder (same grid-aware algorithm as Links)
+  const list = document.getElementById('mediaGrid');
+  const stateInput = document.getElementById('media_state');
+  if (!list || !stateInput) return;
+
+  let draggingEl = null;
+  let suppressClickUntil = 0;
+
+  function buildState(){
+    const items = [...list.querySelectorAll('.reorder-item')];
+    return items.map((item, idx) => ({ id: Number(item.dataset.mid), order: idx }));
+  }
+  function updateState(){
+    try { stateInput.value = JSON.stringify(buildState()); } catch(e) {}
+  }
+  function updateOrderLabels(){
+    [...list.querySelectorAll('.reorder-item')].forEach((item, idx) => {
+      const el = item.querySelector('.order-label');
+      if (el) el.textContent = String(idx + 1);
+    });
+  }
+
+  list.addEventListener('click', (e) => {
+    if (Date.now() < suppressClickUntil){
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }, true);
+
+  list.querySelectorAll('.reorder-item').forEach(item => {
+    item.draggable = true;
+    item.classList.add('drag-ready');
+    item.addEventListener('dragstart', (e) => {
+      draggingEl = item;
+      item.classList.add('dragging');
+      suppressClickUntil = Date.now() + 2200;
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.dataset.mid || ''); } catch(err){}
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      draggingEl = null;
+      updateOrderLabels();
+      updateState();
+    });
+  });
+
+  list.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (!draggingEl) return;
+
+    const rect = list.getBoundingClientRect();
+    const first = list.querySelector('.reorder-item');
+    if (!first) return;
+
+    const firstRect = first.getBoundingClientRect();
+    const cs = getComputedStyle(list);
+
+    let cols = 1;
+    const gtc = (cs.gridTemplateColumns || '').trim();
+    if (gtc && gtc !== 'none') cols = gtc.split(/\s+/).length;
+
+    const colGap = parseFloat(cs.columnGap || cs.gridColumnGap || '0') || 0;
+    const rowGap = parseFloat(cs.rowGap || cs.gridRowGap || '0') || 0;
+    const cellW = firstRect.width + colGap;
+    const cellH = firstRect.height + rowGap;
+
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    let col = Math.floor(x / cellW);
+    let row = Math.floor(y / cellH);
+    col = Math.max(0, Math.min(cols - 1, col));
+    row = Math.max(0, row);
+
+    let index = row * cols + col;
+    const children = [...list.querySelectorAll('.reorder-item')];
+    index = Math.max(0, Math.min(children.length, index));
+    let target = children[index] || null;
+
+    if (!target){
+      list.appendChild(draggingEl);
+      return;
+    }
+    if (target === draggingEl) return;
+
+    const currentIdx = children.indexOf(draggingEl);
+    const targetIdx = children.indexOf(target);
+    if (currentIdx < targetIdx) list.insertBefore(draggingEl, target.nextSibling);
+    else list.insertBefore(draggingEl, target);
+  });
+
+  list.addEventListener('drop', (e) => {
+    e.preventDefault();
+    updateOrderLabels();
+    updateState();
+  });
+
+  window.vnMediaBeforeSubmit = function(){
+    updateOrderLabels();
+    updateState();
+    return true;
+  }
+})();
+{% else %}
+window.vnMediaBeforeSubmit = function(){ return true; }
+{% endif %}
+</script>
+
+{% endblock %}

@@ -1,0 +1,3780 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <h2 style="margin:0;">Content</h2>
+
+    {% if edit_mode or can_edit %}
+      <div class="seg-group">
+        {% if edit_mode %}
+          <a class="btn" href="{{ url_for('content') }}">Done</a>
+        {% else %}
+          {% if can_edit %}
+            <a class="btn vn-icon-btn" href="{{ url_for('content_edit') }}" aria-label="Edit content" title="Edit content">
+              <svg class="vn-lock-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7.1 4l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 .9-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.9 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5.9h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"></path>
+              </svg>
+            </a>
+            <button class="btn vn-icon-btn vn-content-lock-btn" type="button" id="vnContentLockToggle" aria-pressed="true" aria-label="Unlock icon moving" title="Unlock icon moving">
+              <svg class="vn-lock-icon vn-lock-icon-locked" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="10" width="14" height="10" rx="2"></rect>
+                <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+              </svg>
+              <svg class="vn-lock-icon vn-lock-icon-unlocked" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="10" width="14" height="10" rx="2"></rect>
+                <path d="M8 10V7a4 4 0 0 1 7.5-2"></path>
+              </svg>
+            </button>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+  {% if edit_mode %}
+    <hr style="margin:14px 0; opacity:0.25;">
+
+    <div>
+      <div class="label" style="margin:0;">Links editor</div>
+      <div class="help">Groups and links are edited in one table. Check one row to edit, or check multiple rows to delete or move.</div>
+    </div>
+
+    <div class="filters" style="align-items:flex-end; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:260px;">
+        <div class="label">Filter</div>
+        <div style="display:flex; gap:8px;">
+          <select id="filterField" class="input" style="max-width:180px;">
+            <option value="all">All fields</option>
+            <option value="title">Title</option>
+            <option value="url">URL</option>
+            <option value="group">Group</option>
+            <option value="type">Type</option>
+          </select>
+          <input id="filterText" class="input" placeholder="Type filter text… (press Enter)" style="flex:1;">
+          <button class="btn" type="button" onclick="addFilterFromInput()">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chips" class="chips" style="margin-top:10px;"></div>
+
+    <div style="height:10px;"></div>
+
+    <div class="table-wrap">
+      <table class="table" id="vnLinksEditorTable">
+        <thead>
+          <tr>
+            <th style="width:44px;">
+              <input type="checkbox" id="vnSelectVisible" onchange="vnLinksToggleVisible(this)" aria-label="Select visible rows">
+            </th>
+            <th style="width:70px;">Icon</th>
+            <th>Title</th>
+            <th style="width:140px;">Type</th>
+            <th style="width:100px;">Position</th>
+            <th style="width:140px;">Target</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in editor_rows %}
+            <tr class="vn-editor-row{% if r.row_type == 'group' %} vn-editor-group-row{% elif r.group_id is not none %} vn-editor-child-row vn-editor-child-collapsed{% endif %}"
+                data-row-type="{{ r.row_type }}" data-id="{{ r.id }}"
+                data-title="{{ r.title|e }}"
+                data-url="{{ (r.url or '')|e }}"
+                data-target="{{ (r.target or '')|e }}"
+                data-embed="{{ r.embed if r.embed is defined else 0 }}"
+                data-group-id="{{ r.group_id if r.group_id is not none else '' }}"
+                data-parent-group-id="{{ r.group_id if r.group_id is not none else '' }}"
+                data-order-num="{{ r.order_num }}"
+                data-position="{{ r.order_num }}"
+                data-icon="{{ (r.icon or '')|e }}" data-file-mime="{{ (r.file_mime or '')|e }}" data-file-orig="{{ (r.file_original_name or '')|e }}" data-file-size-mb="{{ r.file_size_mb if r.file_size_mb is defined and r.file_size_mb is not none else '' }}"
+                data-ha-entity-id="{{ (r.ha_entity_id or '')|e }}" data-ha-entity-type="{{ (r.ha_entity_type or '')|e }}">
+              <td>
+                <input type="checkbox" class="vn-row-select" name="selected_items" value="{{ r.row_type }}:{{ r.id }}" onchange="vnLinksOnSelect()" aria-label="Select {{ r.title|e }}">
+              </td>
+              <td>
+                <div class="vn-mini-icon">
+                  {% if r.icon %}
+                    <img src="{{ upload_prefix }}/{{ r.icon }}" alt="">
+                  {% else %}
+                    <div class="attach-fileicon" aria-hidden="true">{% if r.row_type == 'group' %}📁{% elif r.row_type == 'file' %}📎{% else %}🔗{% endif %}</div>
+                  {% endif %}
+                </div>
+              </td>
+              <td style="max-width:420px;">
+                <div class="{% if r.group_id is not none %}vn-child-title{% endif %}" style="font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {% if r.row_type == 'group' %}
+                    <button class="vn-group-toggle" type="button" aria-expanded="false" data-group-id="{{ r.id }}" onclick="vnToggleEditorGroup(event, '{{ r.id }}')" title="Show or hide grouped items">
+                      <span class="vn-group-caret" aria-hidden="true">▾</span>
+                      <span class="vn-group-count">{{ r.child_count or 0 }}</span>
+                    </button>
+                  {% endif %}
+                  {{ r.title }}
+                </div>
+                {% if r.row_type == 'link' %}
+                  <div class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.url }}</div>
+                {% elif r.row_type == 'ha' %}
+                  <div class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.ha_entity_id }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.row_type == 'group' %}
+                  <span class="pill">Group</span>
+                {% elif r.row_type == 'file' %}
+                  <span class="pill">File</span>
+                  {% if r.group_name %}
+                    <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
+                  {% endif %}
+                  {% if r.file_size_mb is defined and r.file_size_mb is not none %}
+                    <div class="muted" style="font-size:12px; margin-top:4px;">{{ '%.2f'|format(r.file_size_mb) }} MB</div>
+                  {% endif %}
+                {% elif r.row_type == 'ha' %}
+                  <span class="pill">HA {{ (r.ha_entity_type or 'action')|title }}</span>
+                  {% if r.group_name %}
+                    <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
+                  {% endif %}
+                {% elif r.row_type == 'app' %}
+                  <span class="pill">App</span>
+                  {% if r.group_name %}
+                    <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
+                  {% endif %}
+                {% else %}
+                  <span class="pill">Link</span>
+                  {% if r.group_name %}
+                    <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
+                  {% endif %}
+                {% endif %}
+              </td>
+              <td class="mono">{{ r.order_num }}</td>
+              <td class="mono">
+                {% if r.row_type == 'link' %}
+                  {{ r.target if r.target else '_blank' }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          {% if editor_rows|length == 0 %}
+            <tr><td colspan="6" class="muted" style="text-align:center; padding:14px;">No links yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages and total_pages > 1 %}
+      <div style="height:10px;"></div>
+      <div style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap;">
+        <button class="btn" type="button" {% if page <= 1 %}disabled{% endif %} onclick="gotoEditorPage({{ page-1 }})">Prev</button>
+        <div class="muted">Page {{ page }} / {{ total_pages }}</div>
+        <button class="btn" type="button" {% if page >= total_pages %}disabled{% endif %} onclick="gotoEditorPage({{ page+1 }})">Next</button>
+      </div>
+    {% endif %}
+
+    <div style="height:12px;"></div>
+
+    <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
+      <div class="seg-group" aria-label="Links editor actions">
+        <button class="btn" type="button" onclick="vnLinksOpenAdd()">Add</button>
+        <button class="btn" type="button" onclick="vnLinksOpenEdit()" id="vnBtnEdit" disabled>Edit</button>
+        <button class="btn" type="button" onclick="vnLinksDeleteSelected()" id="vnBtnDelete" disabled>Delete</button>
+      </div>
+      <div class="seg-group" aria-label="Bulk content actions">
+        <button class="btn" type="button" onclick="vnLinksSelectFiltered()" {% if not filtered_selections %}disabled{% endif %}>Select filtered</button>
+        <button class="btn" type="button" onclick="vnLinksClearSelection()">Clear</button>
+        <button class="btn" type="button" onclick="vnOpenIconManager()">Icon manager</button>
+      </div>
+      <form id="vnLinksMoveForm" method="post" action="{{ url_for('content_items_move') }}" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        {{ csrf_field() }}
+        <select class="input" name="group_id" id="vnBulkMoveGroup" style="width:auto; min-width:170px;" aria-label="Move selected to group">
+          <option value="">Ungrouped</option>
+          {% for g in groups %}
+            <option value="{{ g.id }}">{{ g.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" type="button" onclick="vnLinksMoveSelected()" id="vnBtnMove" disabled>Move</button>
+      </form>
+    </div>
+
+    <form id="vnLinksDeleteForm" method="post" action="{{ url_for('content_item_delete') }}" style="display:none;">
+      {{ csrf_field() }}
+      <input type="hidden" name="selected" id="vnDeleteSelected" value="">
+      <input type="hidden" name="delete_group_contents" id="vnDeleteGroupContents" value="0">
+    </form>
+
+    <div id="vnIconManagerBackdrop" class="vn-modal-backdrop hidden" onclick="vnCloseIconManager(event)">
+      <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div class="vn-modal-title">Icon manager</div>
+          <button class="vn-modal-close" type="button" onclick="vnCloseIconManager()">×</button>
+        </div>
+        <div class="vn-modal-body" style="padding:14px;">
+          <div class="help" style="margin-bottom:10px;">Uploaded content icons are saved in a reusable icon library. Choose “Existing icon” while editing to reuse one of these.</div>
+          <form id="vnIconManagerUploadForm" method="post" action="{{ url_for('content_icons_upload') }}" enctype="multipart/form-data" style="margin:0 0 14px;">
+            {{ csrf_field() }}
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input class="input" style="padding:8px 10px; flex:1; min-width:240px;" type="file" name="icons" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*" multiple>
+              <button class="btn" type="submit">Upload icons</button>
+            </div>
+          </form>
+          <form id="vnIconManagerDeleteForm" method="post" action="{{ url_for('content_icons_delete') }}" style="margin:0;">
+            {{ csrf_field() }}
+            <div class="vn-icon-manager-grid">
+              {% for icon in icon_library or [] %}
+                <label class="vn-icon-manager-item" title="{{ icon.path|e }}">
+                  <input type="checkbox" name="icons" value="{{ icon.path|e }}">
+                  <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                  <div class="attach-name">{{ icon.name }}</div>
+                </label>
+              {% endfor %}
+              {% if not icon_library %}
+                <div class="muted">No uploaded icons yet.</div>
+              {% endif %}
+            </div>
+            {% if icon_library %}
+              <div class="vn-modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding-top:12px;">
+                <button class="btn danger" type="button" onclick="vnDeleteManagedIcons()">Delete selected icons</button>
+              </div>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add/Edit modal (portal-mounted under <body> by JS) -->
+    <div id="vnLinksModalBackdrop" class="vn-modal-backdrop hidden" onclick="vnLinksCloseModal(event)">
+      <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div id="vnLinksModalTitle" class="vn-modal-title">Add</div>
+          <button class="vn-modal-close" type="button" onclick="vnLinksCloseModal()">×</button>
+        </div>
+        <div class="vn-modal-body" style="padding:14px 14px 10px;">
+          <form id="vnLinksModalForm" method="post" action="{{ url_for('content_item_save') }}" enctype="multipart/form-data" style="margin:0;">
+            {{ csrf_field() }}
+            <input type="hidden" name="mode" id="vnMode" value="add">
+            <input type="hidden" name="id" id="vnId" value="">
+
+            <div class="vn-two-col">
+              <div>
+                <div class="label">Type</div>
+                <select class="input" name="row_type" id="vnRowType" onchange="vnLinksApplyType()">
+                  <option value="link">Link</option>
+                  <option value="group">Group</option>
+                  <option value="file">File</option>
+                  <option value="ha">Home Assistant</option>
+                  <option value="app">App</option>
+                </select>
+              </div>
+              <div>
+                <div class="label" id="vnPositionLabel">Position on page</div>
+                <input class="input" id="vnPosition" placeholder="0" inputmode="numeric">
+                <input type="hidden" name="order_num" id="vnOrderNum" value="">
+              </div>
+            </div>
+
+            <div style="height:10px;"></div>
+
+            <div>
+              <div class="label">Title</div>
+              <input class="input" name="title" id="vnTitle" placeholder="Title" style="width:100%;">
+            </div>
+
+            <!-- Link fields -->
+            <div id="vnLinkFields" style="margin-top:10px;">
+              <div>
+                <div class="label">URL</div>
+                <input class="input" name="url" id="vnUrl" placeholder="https://example.com" style="width:100%;">
+              </div>
+
+              <div style="height:10px;"></div>
+
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Group</div>
+                  <select class="input" name="group_id" id="vnGroupId" onchange="vnLinksApplyGroup()">
+                    <option value="">Ungrouped</option>
+                    {% for g in groups %}
+                      <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div style="height:10px;"></div>
+
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Target</div>
+                  <select class="input" name="target" id="vnTarget">
+                    <option value="_blank">New tab</option>
+                    <option value="_self">Same window</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnIconAction" onchange="vnLinksApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="grab">Grab favicon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="vnIconUploadWrap" style="margin-top:10px; display:none;">
+                <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnLinkIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                <div class="help">Small images work best.</div>
+              </div>
+              <div id="vnIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                <input type="hidden" name="icon_choice" id="vnIconChoice" value="">
+                <div class="help">Choose an uploaded icon.</div>
+                <div class="vn-icon-picker" data-target="vnIconChoice">
+                  {% for icon in icon_library or [] %}
+                    <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnIconChoice', this.dataset.icon)">
+                      <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                    </button>
+                  {% endfor %}
+                  {% if not icon_library %}
+                    <div class="muted">No uploaded icons yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div style="height:10px;"></div>
+              <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none;">
+                <input type="checkbox" name="embed" id="vnEmbed" value="1" onchange="vnLinksUpdateEmbedHint()">
+                <span>Embed YouTube video (opens in popup)</span>
+              </label>
+              <div id="vnEmbedHint" class="help" style="margin-top:6px; display:none;">Paste a YouTube link (youtube.com/watch… or youtu.be/…) and enable Embed.</div>
+            </div>
+
+            <!-- App fields -->
+            <div id="vnAppFields" class="hidden" style="margin-top:10px;">
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">App</div>
+                  <select class="input" name="app_id" id="vnAppId">
+                    <optgroup label="Games">
+                      <option value="tetris">Falling Blocks</option>
+                      <option value="jewels">Jewel Match</option>
+                      <option value="memory">Memory Match</option>
+                      <option value="minesweeper">Minesweeper</option>
+                      <option value="breakout">Breakout</option>
+                      <option value="simon">Sequence Recall</option>
+                    </optgroup>
+                    <optgroup label="Apps">
+                      <option value="sticky">Sticky Notes</option>
+                      <option value="ambient">Ambient Focus</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <div class="label">Group</div>
+                  <select class="input" name="group_id" id="vnAppGroupId">
+                    <option value="">Ungrouped</option>
+                    {% for g in groups %}
+                      <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- File fields -->
+            <div id="vnFileFields" class="hidden" style="margin-top:10px;">
+              <div>
+                <div class="label">File</div>
+                <input class="input" type="file" name="file_file" id="vnFileFile" style="width:100%;" multiple>
+                <div class="help">Select one or more files. Images and videos will open in a popup when clicked. Other files will download/open normally.</div>
+              </div>
+              <div style="height:10px;"></div>
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Group</div>
+                  <select class="input" name="group_id" id="vnFileGroupId" onchange="vnLinksApplyFileGroup()">
+                    <option value="">Ungrouped</option>
+                    {% for g in groups %}
+                      <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnFileIconAction" onchange="vnLinksApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+              </div>
+              <div id="vnFileIconUploadWrap" style="margin-top:10px; display:none;">
+                <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnFileIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                <div class="help">Small images work best.</div>
+              </div>
+              <div id="vnFileIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                <input type="hidden" name="icon_choice" id="vnFileIconChoice" value="">
+                <div class="help">Choose an uploaded icon.</div>
+                <div class="vn-icon-picker" data-target="vnFileIconChoice">
+                  {% for icon in icon_library or [] %}
+                    <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnFileIconChoice', this.dataset.icon)">
+                      <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                    </button>
+                  {% endfor %}
+                  {% if not icon_library %}
+                    <div class="muted">No uploaded icons yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <!-- Home Assistant fields -->
+            <div id="vnHaFields" class="hidden" style="margin-top:10px;">
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Action type</div>
+                  <select class="input" name="ha_entity_type" id="vnHaEntityType" onchange="vnHaApplyType()">
+                    <option value="scene">Scene</option>
+                    <option value="script">Script</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="label">Group</div>
+                  <select class="input" name="group_id" id="vnHaGroupId" onchange="vnLinksApplyHaGroup()">
+                    <option value="">Ungrouped</option>
+                    {% for g in groups %}
+                      <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div style="height:10px;"></div>
+
+              <div>
+                <div class="label">Entity</div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <input class="input" name="ha_entity_id" id="vnHaEntityId" placeholder="scene.movie_night" style="width:100%;">
+                  <button class="btn" type="button" onclick="vnHaLoadEntities()">Load</button>
+                </div>
+                <div class="help" id="vnHaPickerStatus" style="margin-top:6px;">Load scenes/scripts from Home Assistant after saving URL and token in Settings.</div>
+                <select class="input" id="vnHaEntityPicker" style="margin-top:10px; width:100%; display:none;" onchange="vnHaChooseSelectedEntity()">
+                  <option value="">Choose an entity...</option>
+                </select>
+              </div>
+
+              <div style="height:10px;"></div>
+
+              <div>
+                <div class="label">Icon</div>
+                <select class="input" name="icon_action" id="vnHaIconAction" onchange="vnLinksApplyIconAction()">
+                  <option value="keep">Keep current</option>
+                  <option value="library">Existing icon</option>
+                  <option value="upload">Upload</option>
+                  <option value="clear">Clear</option>
+                </select>
+              </div>
+              <div id="vnHaIconUploadWrap" style="margin-top:10px; display:none;">
+                <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnHaIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                <div class="help">Small images work best.</div>
+              </div>
+              <div id="vnHaIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                <input type="hidden" name="icon_choice" id="vnHaIconChoice" value="">
+                <div class="help">Choose an uploaded icon.</div>
+                <div class="vn-icon-picker" data-target="vnHaIconChoice">
+                  {% for icon in icon_library or [] %}
+                    <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnHaIconChoice', this.dataset.icon)">
+                      <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                    </button>
+                  {% endfor %}
+                  {% if not icon_library %}
+                    <div class="muted">No uploaded icons yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <!-- Group fields -->
+            <div id="vnGroupFields" class="hidden" style="margin-top:10px;">
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnGroupIconAction" onchange="vnLinksApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="label">&nbsp;</div>
+                  <div class="muted">Default icon: 📁</div>
+                </div>
+              </div>
+              <div id="vnGroupIconUploadWrap" style="margin-top:10px; display:none;">
+                <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnGroupIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+              </div>
+              <div id="vnGroupIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                <input type="hidden" name="icon_choice" id="vnGroupIconChoice" value="">
+                <div class="help">Choose an uploaded icon.</div>
+                <div class="vn-icon-picker" data-target="vnGroupIconChoice">
+                  {% for icon in icon_library or [] %}
+                    <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnGroupIconChoice', this.dataset.icon)">
+                      <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                    </button>
+                  {% endfor %}
+                  {% if not icon_library %}
+                    <div class="muted">No uploaded icons yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </form>
+
+          <div id="vnContentUploadProgress" class="vn-upload-progress" hidden aria-live="polite">
+            <div class="vn-upload-progress-label">
+              <span id="vnContentUploadProgressText">Uploading...</span>
+              <span id="vnContentUploadProgressPct">0%</span>
+            </div>
+            <div class="vn-upload-progress-track">
+              <div id="vnContentUploadProgressBar" class="vn-upload-progress-bar"></div>
+            </div>
+          </div>
+
+          <div class="vn-modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding-top:12px;">
+            <button class="btn danger" id="vnLinksDeleteBtn" type="button" onclick="vnLinksDeleteCurrent()" style="display:none;">Delete</button>
+            <div style="flex:1;"></div>
+            <button class="btn" type="button" onclick="vnLinksCloseModal()">Cancel</button>
+            <button class="btn primary" id="vnLinksSaveBtn" type="button" onclick="vnLinksSaveFromModal()">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Multi-edit modal -->
+    <div id="vnBulkEditBackdrop" class="vn-modal-backdrop hidden" onclick="vnLinksCloseBulkEdit(event)">
+      <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div class="vn-modal-title">Multi-edit</div>
+          <button class="vn-modal-close" type="button" onclick="vnLinksCloseBulkEdit()">×</button>
+        </div>
+        <div class="vn-modal-body" style="padding:14px 14px 10px;">
+          <form id="vnBulkEditForm" method="post" action="{{ url_for('content_items_bulk_edit') }}" enctype="multipart/form-data" style="margin:0;">
+            {{ csrf_field() }}
+            <div class="muted" id="vnBulkEditCount" style="margin-bottom:12px;">No items selected.</div>
+
+            <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none;">
+              <input type="checkbox" name="apply_group" id="vnBulkApplyGroup" value="1" onchange="vnLinksApplyBulkEdit()">
+              <span>Change group for selected links/files</span>
+            </label>
+            <div id="vnBulkGroupWrap" style="margin-top:10px; display:none;">
+              <select class="input" name="group_id" id="vnBulkEditGroup">
+                <option value="">Ungrouped</option>
+                {% for g in groups %}
+                  <option value="{{ g.id }}">{{ g.name }}</option>
+                {% endfor %}
+              </select>
+              <div class="help">Groups themselves will be ignored for this property.</div>
+            </div>
+
+            <div style="height:14px;"></div>
+
+            <div class="vn-form-row">
+              <label class="vn-label" for="vnBulkIconAction">Icon</label>
+              <select class="input" name="icon_action" id="vnBulkIconAction" onchange="vnLinksApplyBulkEdit()">
+                <option value="keep">Keep current</option>
+                <option value="library">Existing icon</option>
+                <option value="upload">Upload</option>
+                <option value="clear">Clear</option>
+              </select>
+            </div>
+            <div id="vnBulkIconUploadWrap" style="display:none;">
+              <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnBulkIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+              <div class="help">This icon will be applied to every selected item, including uploaded files and groups.</div>
+            </div>
+            <div id="vnBulkIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+              <input type="hidden" name="icon_choice" id="vnBulkIconChoice" value="">
+              <div class="help">This icon will be applied to every selected item, including uploaded files and groups.</div>
+              <div class="vn-icon-picker" data-target="vnBulkIconChoice">
+                {% for icon in icon_library or [] %}
+                  <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnBulkIconChoice', this.dataset.icon)">
+                    <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                  </button>
+                {% endfor %}
+                {% if not icon_library %}
+                  <div class="muted">No uploaded icons yet.</div>
+                {% endif %}
+              </div>
+            </div>
+          </form>
+
+          <div class="vn-modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding-top:12px;">
+            <button class="btn" type="button" onclick="vnLinksCloseBulkEdit()">Cancel</button>
+            <button class="btn primary" id="vnBulkEditSaveBtn" type="button" onclick="vnLinksSaveBulkEdit()">Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+  // Body-level Content upload indicator. This is deliberately independent of
+  // the modal tree so overflow/clipping cannot hide it.
+  (function(){
+    function ensure(){
+      let el = document.getElementById('vnContentUploadOverlay');
+      if (el) return el;
+      el = document.createElement('div');
+      el.id = 'vnContentUploadOverlay';
+      el.setAttribute('aria-live', 'polite');
+      el.style.cssText = 'display:none; position:fixed; left:50%; bottom:18px; transform:translateX(-50%); width:min(560px,calc(100vw - 32px)); z-index:2147483647; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,.22); background:rgba(8,12,22,.96); color:white; box-shadow:0 18px 54px rgba(0,0,0,.58);';
+      el.innerHTML = '<div style="display:flex; justify-content:space-between; gap:12px; font-size:13px; margin-bottom:8px;"><span id="vnContentUploadOverlayText">Preparing upload...</span><span id="vnContentUploadOverlayPct">0%</span></div><div style="height:10px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.14);"><div id="vnContentUploadOverlayBar" style="height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg,var(--accent,#7c5cff),var(--accent2,#2dd4bf)); transition:width 120ms ease;"></div></div>';
+      document.body.appendChild(el);
+      return el;
+    }
+    window.vnContentUploadOverlayShow = function(percent, label){
+      const el = ensure();
+      const txt = document.getElementById('vnContentUploadOverlayText');
+      const pct = document.getElementById('vnContentUploadOverlayPct');
+      const bar = document.getElementById('vnContentUploadOverlayBar');
+      el.style.display = 'block';
+      if (txt) txt.textContent = label || 'Uploading...';
+      if (Number.isFinite(percent)){
+        const n = Math.max(0, Math.min(100, Math.round(percent)));
+        if (bar) bar.style.width = n + '%';
+        if (pct) pct.textContent = n + '%';
+      } else {
+        if (bar) bar.style.width = '35%';
+        if (pct) pct.textContent = '';
+      }
+      const bulk = document.getElementById('vnBulkEditBackdrop');
+      const bulkOpen = bulk && !bulk.classList.contains('hidden');
+      const saveBtn = document.getElementById(bulkOpen ? 'vnBulkEditSaveBtn' : 'vnLinksSaveBtn');
+      if (saveBtn && saveBtn.textContent !== 'Uploading...'){
+        saveBtn.dataset.vnLabel = saveBtn.textContent || 'Save';
+        saveBtn.textContent = 'Uploading...';
+      }
+    };
+    window.vnContentUploadOverlayHide = function(){
+      const el = document.getElementById('vnContentUploadOverlay');
+      if (el) el.style.display = 'none';
+      const bulk = document.getElementById('vnBulkEditBackdrop');
+      const bulkOpen = bulk && !bulk.classList.contains('hidden');
+      const saveBtn = document.getElementById(bulkOpen ? 'vnBulkEditSaveBtn' : 'vnLinksSaveBtn');
+      if (saveBtn && saveBtn.dataset.vnLabel){
+        saveBtn.textContent = saveBtn.dataset.vnLabel;
+        delete saveBtn.dataset.vnLabel;
+      }
+    };
+    document.addEventListener('click', function(ev){
+      if (ev.target && ev.target.closest && ev.target.closest('#vnLinksSaveBtn')){
+        window.vnContentUploadOverlayShow(0, 'Preparing upload...');
+      }
+    }, true);
+    document.addEventListener('submit', function(ev){
+      if (ev.target && ev.target.id === 'vnLinksModalForm'){
+        window.vnContentUploadOverlayShow(0, 'Preparing upload...');
+      }
+    }, true);
+  })();
+
+  // Server-side filtering with chips (same style/behavior as Notes page)
+  // Filters are stored in the URL as repeated f_field / f_value params.
+  let filters = {{ (filters or []) | tojson }}; // [{field, value}, ...]
+
+  const $ = (sel) => document.querySelector(sel);
+
+  function escapeHtml(unsafe) {
+    return (unsafe || '')
+      .toString()
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'",'&#039;');
+  }
+
+  function fieldLabel(field){
+    if (field === 'title') return 'Title';
+    if (field === 'url') return 'URL';
+    if (field === 'group') return 'Group';
+    if (field === 'type') return 'Type';
+    return 'All';
+  }
+
+  function renderChips(){
+    const chips = $('#chips');
+    if (!chips) return;
+    chips.innerHTML = '';
+    if (!filters || filters.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.textContent = 'No filters applied.';
+      chips.appendChild(empty);
+      return;
+    }
+    filters.forEach((f, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.innerHTML = `
+        <span>${fieldLabel(f.field)}: <strong>${escapeHtml(f.value)}</strong></span>
+        <button type="button" aria-label="Remove filter" onclick="removeFilter(${idx})">×</button>
+      `;
+      chips.appendChild(chip);
+    });
+  }
+
+  function gotoEditorPage(page){
+    const params = new URLSearchParams();
+    params.set('page', String(Math.max(1, parseInt(page || '1', 10) || 1)));
+    for (const f of (filters || [])){
+      if (!f || !f.value) continue;
+      params.append('f_field', f.field || 'all');
+      params.append('f_value', f.value);
+    }
+    window.location.href = `/content/edit?${params.toString()}`;
+  }
+  window.gotoEditorPage = gotoEditorPage;
+
+  function removeFilter(index){
+    filters.splice(index, 1);
+    renderChips();
+    gotoEditorPage(1);
+  }
+  window.removeFilter = removeFilter;
+
+  function addFilter(field, value){
+    const v = (value || '').trim();
+    if (!v) return;
+    filters.push({ field: field || 'all', value: v });
+    renderChips();
+    gotoEditorPage(1);
+  }
+
+  function addFilterFromInput(){
+    const field = ($('#filterField')?.value || 'all');
+    const t = ($('#filterText')?.value || '');
+    if (t.trim()) addFilter(field, t);
+    if ($('#filterText')) $('#filterText').value = '';
+  }
+  window.addFilterFromInput = addFilterFromInput;
+
+  function handleEnter(e){
+    if (e.key === 'Enter'){
+      e.preventDefault();
+      addFilterFromInput();
+    }
+  }
+  try{ $('#filterText')?.addEventListener('keydown', handleEnter); }catch(e){}
+
+  try{
+    if (filters && filters.length > 0){
+      $('#filterField').value = filters[filters.length - 1].field || 'all';
+    }
+  }catch(e){}
+
+  renderChips();
+
+  // --------- Editor selection + modal ----------
+  function mountBackdropToBody(id){
+    try{
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.parentElement !== document.body){
+        document.body.appendChild(el);
+      }
+    }catch(e){}
+  }
+  function mountModalsToBody(){
+    mountBackdropToBody('vnLinksModalBackdrop');
+    mountBackdropToBody('vnBulkEditBackdrop');
+    mountBackdropToBody('vnIconManagerBackdrop');
+    mountBackdropToBody('vnGroupModalBackdrop');
+    mountBackdropToBody('vnYTModalBackdrop');
+    mountBackdropToBody('contentViewBackdrop');
+  }
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', mountModalsToBody);
+  } else {
+    mountModalsToBody();
+  }
+
+  const filteredSelections = {{ (filtered_selections or []) | tojson }};
+  let selected = '';
+  let selectedItems = new Set();
+  let selectedFilteredMode = false;
+  let modalOpen = false;
+
+  function getSelectedItems(){
+    return [...document.querySelectorAll('.vn-row-select:checked')].map(el => el.value).filter(Boolean);
+  }
+
+  function selectionHasGroup(items){
+    return (items || []).some(v => String(v || '').startsWith('group:'));
+  }
+
+  function setButtonsEnabled(){
+    const edit = $('#vnBtnEdit');
+    const del = $('#vnBtnDelete');
+    const move = $('#vnBtnMove');
+    const visible = $('#vnSelectVisible');
+    const items = getSelectedItems();
+    if (!selectedFilteredMode) selectedItems = new Set(items);
+    selected = items.length === 1 ? items[0] : '';
+    const effectiveItems = selectedFilteredMode ? [...selectedItems] : items;
+    if (edit){
+      edit.disabled = effectiveItems.length === 0;
+      edit.textContent = effectiveItems.length > 1 ? 'Multi-edit' : 'Edit';
+    }
+    if (del) del.disabled = effectiveItems.length === 0;
+    if (move) move.disabled = effectiveItems.length === 0 || effectiveItems.length !== effectiveItems.filter(v => !String(v).startsWith('group:')).length;
+    if (visible){
+      const boxes = [...document.querySelectorAll('.vn-row-select')];
+      visible.checked = boxes.length > 0 && boxes.every(cb => cb.checked);
+      visible.indeterminate = boxes.some(cb => cb.checked) && !visible.checked;
+    }
+  }
+
+  window.vnLinksOnSelect = function(){
+    selectedFilteredMode = false;
+    setButtonsEnabled();
+  };
+
+  window.vnLinksToggleVisible = function(box){
+    selectedFilteredMode = false;
+    document.querySelectorAll('.vn-row-select').forEach(cb => { cb.checked = !!box.checked; });
+    setButtonsEnabled();
+  };
+
+  window.vnLinksClearSelection = function(){
+    selectedFilteredMode = false;
+    document.querySelectorAll('.vn-row-select').forEach(cb => { cb.checked = false; });
+    const visible = $('#vnSelectVisible');
+    if (visible){ visible.checked = false; visible.indeterminate = false; }
+    setButtonsEnabled();
+  };
+
+  window.vnLinksSelectFiltered = function(){
+    selectedFilteredMode = true;
+    const filtered = new Set(filteredSelections || []);
+    document.querySelectorAll('.vn-row-select').forEach(cb => {
+      cb.checked = filtered.has(cb.value);
+    });
+    selectedItems = filtered;
+    setButtonsEnabled();
+  };
+
+  window.vnToggleEditorGroup = function(ev, groupId){
+    try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
+    const btn = ev?.currentTarget;
+    const rows = document.querySelectorAll(`tr.vn-editor-child-row[data-parent-group-id="${groupId}"]`);
+    const expanded = btn ? btn.getAttribute('aria-expanded') !== 'false' : true;
+    const nextExpanded = !expanded;
+    if (btn){
+      btn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+    }
+    rows.forEach((row) => {
+      row.classList.toggle('vn-editor-child-collapsed', !nextExpanded);
+    });
+  };
+
+  function openModal(title){
+    mountModalsToBody();
+    const bd = $('#vnLinksModalBackdrop');
+    const t = $('#vnLinksModalTitle');
+    const progress = $('#vnContentUploadProgress');
+    const progressBar = $('#vnContentUploadProgressBar');
+    if (t) t.textContent = title || 'Edit';
+    if (progress){
+      progress.hidden = true;
+      progress.classList.remove('is-indeterminate');
+    }
+    if (progressBar) progressBar.style.width = '0%';
+    if (bd) bd.classList.remove('hidden');
+    modalOpen = true;
+  }
+
+  window.vnLinksCloseModal = function(ev){
+    try{
+      if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return;
+    }catch(e){}
+    const bd = $('#vnLinksModalBackdrop');
+    if (bd) bd.classList.add('hidden');
+    modalOpen = false;
+  };
+
+  function getYouTubeId(u){
+    try{
+      u = (u || '').trim();
+      if (!u) return '';
+      if (!/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(u)) u = 'https://' + u;
+      const url = new URL(u);
+      const host = (url.hostname || '').toLowerCase();
+      if (host.includes('youtu.be')){
+        const id = url.pathname.replace(/^\//,'').split('/')[0];
+        return id || '';
+      }
+      if (host.includes('youtube.com') || host.includes('m.youtube.com')){
+        if (url.pathname.startsWith('/watch')) return url.searchParams.get('v') || '';
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts[0] === 'shorts' && parts[1]) return parts[1];
+        if (parts[0] === 'embed' && parts[1]) return parts[1];
+      }
+    }catch(e){}
+    return '';
+  }
+
+  window.vnLinksUpdateEmbedHint = function(){
+    const rt = $('#vnRowType')?.value || 'link';
+    const hint = $('#vnEmbedHint');
+    const cb = $('#vnEmbed');
+    if (!hint || !cb) return;
+    if (rt !== 'link'){ hint.style.display = 'none'; cb.checked = false; return; }
+    const id = getYouTubeId($('#vnUrl')?.value || '');
+    hint.style.display = id ? 'block' : 'none';
+    if (!id) cb.checked = false;
+  };
+
+  function setIconChoice(targetId, value){
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    input.value = value || '';
+    document.querySelectorAll(`.vn-icon-picker[data-target="${targetId}"] .vn-icon-choice`).forEach(btn => {
+      btn.classList.toggle('selected', !!value && btn.dataset.icon === value);
+    });
+  }
+
+  function resetIconChoices(){
+    ['vnIconChoice', 'vnFileIconChoice', 'vnGroupIconChoice', 'vnHaIconChoice', 'vnBulkIconChoice'].forEach(id => setIconChoice(id, ''));
+  }
+
+  window.vnChooseIcon = function(ev, targetId, value){
+    if (ev){
+      try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
+    }
+    setIconChoice(targetId, value || '');
+  };
+
+  document.addEventListener('click', function(ev){
+    const btn = ev.target && ev.target.closest ? ev.target.closest('.vn-icon-choice') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const picker = btn.closest('.vn-icon-picker');
+    if (!picker) return;
+    setIconChoice(picker.dataset.target || '', btn.dataset.icon || '');
+  });
+
+  function vnHaSetPickerStatus(text){
+    const status = $('#vnHaPickerStatus');
+    if (status) status.textContent = text || '';
+  }
+
+  function vnHaClearPicker(){
+    const picker = $('#vnHaEntityPicker');
+    if (picker){
+      picker.innerHTML = '<option value="">Choose an entity...</option>';
+      picker.style.display = 'none';
+    }
+  }
+
+  function vnHaHighlightSelection(){
+    const picker = $('#vnHaEntityPicker');
+    const current = ($('#vnHaEntityId')?.value || '').trim();
+    if (picker) picker.value = current || '';
+  }
+
+  window.vnHaApplyType = function(){
+    const type = $('#vnHaEntityType')?.value || 'scene';
+    const entity = $('#vnHaEntityId');
+    if (entity && entity.value && !entity.value.startsWith(type + '.')) entity.value = '';
+    vnHaClearPicker();
+    vnHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
+  };
+
+  window.vnHaChooseEntity = function(entityId, name){
+    const input = $('#vnHaEntityId');
+    if (input) input.value = entityId || '';
+    const title = $('#vnTitle');
+    if (title && !(title.value || '').trim()) title.value = name || entityId || '';
+    vnHaHighlightSelection();
+  };
+
+  window.vnHaChooseSelectedEntity = function(){
+    const picker = $('#vnHaEntityPicker');
+    if (!picker) return;
+    const opt = picker.options[picker.selectedIndex];
+    window.vnHaChooseEntity(picker.value || '', opt ? (opt.dataset.name || opt.textContent || '') : '');
+  };
+
+  window.vnHaLoadEntities = async function(){
+    const type = $('#vnHaEntityType')?.value || 'scene';
+    const picker = $('#vnHaEntityPicker');
+    if (!picker) return;
+    picker.style.display = 'block';
+    picker.innerHTML = '';
+    vnHaSetPickerStatus('Loading Home Assistant ' + type + 's...');
+    try{
+      const resp = await fetch(`{{ url_for('content_ha_entities') }}?type=${encodeURIComponent(type)}`, {
+        headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Unable to load Home Assistant entities.');
+      const entities = data.entities || [];
+      if (!entities.length){
+        vnHaSetPickerStatus('No ' + type + 's were returned by Home Assistant.');
+        return;
+      }
+      vnHaSetPickerStatus('Choose a ' + type + '.');
+      picker.innerHTML = '<option value="">Choose an entity...</option>';
+      for (const ent of entities){
+        const opt = document.createElement('option');
+        opt.value = ent.entity_id || '';
+        opt.dataset.name = ent.name || '';
+        opt.textContent = `${ent.name || ent.entity_id || ''} (${ent.entity_id || ''})`;
+        picker.appendChild(opt);
+      }
+      picker.style.display = 'block';
+      vnHaHighlightSelection();
+    }catch(err){
+      vnHaSetPickerStatus(err && err.message ? err.message : 'Unable to load Home Assistant entities.');
+    }
+  };
+
+  function validateHaFields(){
+    const rt = $('#vnRowType')?.value || 'link';
+    if (rt !== 'ha') return true;
+    const type = $('#vnHaEntityType')?.value || 'scene';
+    const entity = ($('#vnHaEntityId')?.value || '').trim();
+    if (!entity || !entity.startsWith(type + '.')){
+      alert('Choose or enter a valid Home Assistant ' + type + ' entity first.');
+      return false;
+    }
+    return true;
+  }
+
+  function activeIconChoiceMissing(){
+    const rt = $('#vnRowType')?.value || 'link';
+    if (rt === 'link' && ($('#vnIconAction')?.value || '') === 'library') return !($('#vnIconChoice')?.value || '');
+    if (rt === 'file' && ($('#vnFileIconAction')?.value || '') === 'library') return !($('#vnFileIconChoice')?.value || '');
+    if (rt === 'group' && ($('#vnGroupIconAction')?.value || '') === 'library') return !($('#vnGroupIconChoice')?.value || '');
+    if (rt === 'ha' && ($('#vnHaIconAction')?.value || '') === 'library') return !($('#vnHaIconChoice')?.value || '');
+    return false;
+  }
+
+  window.vnLinksApplyIconAction = function(){
+    const rt = $('#vnRowType')?.value || 'link';
+    const linkUp = $('#vnIconUploadWrap');
+    const linkLib = $('#vnIconLibraryWrap');
+    const fileUp = $('#vnFileIconUploadWrap');
+    const fileLib = $('#vnFileIconLibraryWrap');
+    const groupUp = $('#vnGroupIconUploadWrap');
+    const groupLib = $('#vnGroupIconLibraryWrap');
+    const haUp = $('#vnHaIconUploadWrap');
+    const haLib = $('#vnHaIconLibraryWrap');
+    if (rt === 'link'){
+      const a = ($('#vnIconAction')?.value || 'keep');
+      if (linkUp) linkUp.style.display = (a === 'upload') ? 'block' : 'none';
+      if (linkLib) linkLib.style.display = (a === 'library') ? 'block' : 'none';
+      if (fileUp) fileUp.style.display = 'none';
+      if (fileLib) fileLib.style.display = 'none';
+      if (groupUp) groupUp.style.display = 'none';
+      if (groupLib) groupLib.style.display = 'none';
+      if (haUp) haUp.style.display = 'none';
+      if (haLib) haLib.style.display = 'none';
+    } else if (rt === 'file') {
+      const a = ($('#vnFileIconAction')?.value || 'keep');
+      if (fileUp) fileUp.style.display = (a === 'upload') ? 'block' : 'none';
+      if (fileLib) fileLib.style.display = (a === 'library') ? 'block' : 'none';
+      if (linkUp) linkUp.style.display = 'none';
+      if (linkLib) linkLib.style.display = 'none';
+      if (groupUp) groupUp.style.display = 'none';
+      if (groupLib) groupLib.style.display = 'none';
+      if (haUp) haUp.style.display = 'none';
+      if (haLib) haLib.style.display = 'none';
+    } else if (rt === 'group') {
+      const a = ($('#vnGroupIconAction')?.value || 'keep');
+      if (groupUp) groupUp.style.display = (a === 'upload') ? 'block' : 'none';
+      if (groupLib) groupLib.style.display = (a === 'library') ? 'block' : 'none';
+      if (linkUp) linkUp.style.display = 'none';
+      if (linkLib) linkLib.style.display = 'none';
+      if (fileUp) fileUp.style.display = 'none';
+      if (fileLib) fileLib.style.display = 'none';
+      if (haUp) haUp.style.display = 'none';
+      if (haLib) haLib.style.display = 'none';
+    } else if (rt === 'ha') {
+      const a = ($('#vnHaIconAction')?.value || 'keep');
+      if (haUp) haUp.style.display = (a === 'upload') ? 'block' : 'none';
+      if (haLib) haLib.style.display = (a === 'library') ? 'block' : 'none';
+      if (linkUp) linkUp.style.display = 'none';
+      if (linkLib) linkLib.style.display = 'none';
+      if (fileUp) fileUp.style.display = 'none';
+      if (fileLib) fileLib.style.display = 'none';
+      if (groupUp) groupUp.style.display = 'none';
+      if (groupLib) groupLib.style.display = 'none';
+    } else {
+      if (linkUp) linkUp.style.display = 'none';
+      if (linkLib) linkLib.style.display = 'none';
+      if (fileUp) fileUp.style.display = 'none';
+      if (fileLib) fileLib.style.display = 'none';
+      if (groupUp) groupUp.style.display = 'none';
+      if (groupLib) groupLib.style.display = 'none';
+      if (haUp) haUp.style.display = 'none';
+      if (haLib) haLib.style.display = 'none';
+    }
+  };
+
+  window.vnLinksApplyGroup = function(){
+    window.vnLinksApplyPositionContext();
+  };
+
+  window.vnLinksApplyFileGroup = function(){
+    window.vnLinksApplyPositionContext();
+  };
+
+  window.vnLinksApplyHaGroup = function(){
+    window.vnLinksApplyPositionContext();
+  };
+
+  function currentGroupIdForType(){
+    const rt = $('#vnRowType')?.value || 'link';
+    if (rt === 'link') return ($('#vnGroupId')?.value || '').trim();
+    if (rt === 'file') return ($('#vnFileGroupId')?.value || '').trim();
+    if (rt === 'ha') return ($('#vnHaGroupId')?.value || '').trim();
+    return '';
+  }
+
+  window.vnLinksApplyPositionContext = function(){
+    const rt = $('#vnRowType')?.value || 'link';
+    const label = $('#vnPositionLabel');
+    if (!label) return;
+    label.textContent = 'Position on page';
+  };
+
+  function syncPositionFields(){
+    const pos = ($('#vnPosition')?.value || '').trim();
+    const order = $('#vnOrderNum');
+    if (!order) return;
+    order.value = pos;
+  };
+
+  window.vnLinksApplyType = function(){
+    const rt = $('#vnRowType')?.value || 'link';
+    const linkFields = $('#vnLinkFields');
+    const groupFields = $('#vnGroupFields');
+    const fileFields = $('#vnFileFields');
+    const haFields = $('#vnHaFields');
+    const appFields = $('#vnAppFields');
+
+    if (linkFields) linkFields.style.display = (rt === 'link') ? 'block' : 'none';
+    if (groupFields) groupFields.style.display = (rt === 'group') ? 'block' : 'none';
+    if (fileFields) fileFields.style.display = (rt === 'file') ? 'block' : 'none';
+    if (haFields) haFields.style.display = (rt === 'ha') ? 'block' : 'none';
+    if (appFields) appFields.style.display = (rt === 'app') ? 'block' : 'none';
+
+    const toggleDisabled = (root, disabled) => {
+      if (!root) return;
+      for (const el of root.querySelectorAll('input,select,textarea')){
+        if (disabled) el.setAttribute('disabled','disabled');
+        else el.removeAttribute('disabled');
+      }
+    };
+    toggleDisabled(linkFields, rt !== 'link');
+    toggleDisabled(groupFields, rt !== 'group');
+    toggleDisabled(fileFields, rt !== 'file');
+    toggleDisabled(haFields, rt !== 'ha');
+    toggleDisabled(appFields, rt !== 'app');
+
+    window.vnLinksApplyPositionContext();
+    window.vnLinksApplyIconAction();
+    window.vnLinksUpdateEmbedHint();
+  };
+
+  function fillFromRow(row){
+    const rt = row.dataset.rowType;
+    $('#vnRowType').value = rt;
+    $('#vnId').value = row.dataset.id || '';
+    $('#vnTitle').value = row.dataset.title || '';
+    $('#vnPosition').value = row.dataset.position || '';
+    $('#vnOrderNum').value = row.dataset.orderNum || '';
+
+    try{ $('#vnLinkIconFile').value = ''; }catch(e){}
+    try{ $('#vnFileIconFile').value = ''; }catch(e){}
+    try{ $('#vnGroupIconFile').value = ''; }catch(e){}
+    try{ $('#vnHaIconFile').value = ''; }catch(e){}
+    try{ $('#vnFileFile').value = ''; }catch(e){}
+    resetIconChoices();
+
+    if (rt === 'link'){
+      $('#vnUrl').value = row.dataset.url || '';
+      $('#vnTarget').value = (row.dataset.target || '_blank');
+      $('#vnGroupId').value = row.dataset.groupId || '';
+      const emb = (row.dataset.embed || '0').trim();
+      $('#vnEmbed').checked = (emb === '1' || emb === 'true');
+      $('#vnIconAction').value = 'keep';
+    } else if (rt === 'file'){
+      $('#vnFileGroupId').value = row.dataset.groupId || '';
+      $('#vnFileIconAction').value = 'keep';
+    } else if (rt === 'ha'){
+      $('#vnHaGroupId').value = row.dataset.groupId || '';
+      $('#vnHaEntityType').value = row.dataset.haEntityType || 'scene';
+      $('#vnHaEntityId').value = row.dataset.haEntityId || '';
+      $('#vnHaIconAction').value = 'keep';
+      vnHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
+    } else if (rt === 'app'){
+      $('#vnAppId').value = row.dataset.url || 'tetris';
+      $('#vnAppGroupId').value = row.dataset.groupId || '';
+    } else {
+      $('#vnGroupIconAction').value = 'keep';
+    }
+
+    window.vnLinksApplyType();
+  }
+
+  window.vnLinksOpenAdd = function(){
+    $('#vnMode').value = 'add';
+    $('#vnId').value = '';
+    $('#vnRowType').value = 'link';
+    $('#vnTitle').value = '';
+    $('#vnPosition').value = '';
+    $('#vnOrderNum').value = '';
+
+    $('#vnUrl').value = '';
+    $('#vnTarget').value = '_blank';
+    $('#vnGroupId').value = '';
+    $('#vnEmbed').checked = false;
+    $('#vnIconAction').value = 'keep';
+
+    try{ $('#vnFileFile').value = ''; }catch(e){}
+    try{ $('#vnFileIconFile').value = ''; }catch(e){}
+    try{ $('#vnHaIconFile').value = ''; }catch(e){}
+    resetIconChoices();
+    $('#vnFileGroupId').value = '';
+    $('#vnFileIconAction').value = 'keep';
+    $('#vnHaGroupId').value = '';
+    $('#vnHaEntityType').value = 'scene';
+    $('#vnHaEntityId').value = '';
+    $('#vnHaIconAction').value = 'keep';
+    $('#vnAppId').value = 'tetris';
+    $('#vnAppGroupId').value = '';
+    vnHaClearPicker();
+
+    $('#vnGroupIconAction').value = 'keep';
+
+    window.vnLinksApplyType();
+    const delBtn = $('#vnLinksDeleteBtn');
+    if (delBtn) delBtn.style.display = 'none';
+    openModal('Add item');
+  };
+
+  window.vnLinksOpenEdit = function(){
+    const effectiveItems = effectiveSelectedItems();
+    if (effectiveItems.length > 1){
+      window.vnLinksOpenBulkEdit();
+      return;
+    }
+    if (!selected) return;
+    const [rt, id] = selected.split(':');
+    const row = document.querySelector(`tr.vn-editor-row[data-row-type="${rt}"][data-id="${id}"]`);
+    if (!row) return;
+    $('#vnMode').value = 'edit';
+    fillFromRow(row);
+    const delBtn = $('#vnLinksDeleteBtn');
+    if (delBtn) delBtn.style.display = '';
+    openModal('Edit item');
+  };
+
+  function effectiveSelectedItems(){
+    const visibleItems = getSelectedItems();
+    if (selectedFilteredMode && selectedItems.size > visibleItems.length){
+      return [...selectedItems];
+    }
+    return visibleItems;
+  }
+
+  function addSelectedInputs(form, items){
+    form.querySelectorAll('input[name="selected_items"]').forEach(el => el.remove());
+    items.forEach(v => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'selected_items';
+      input.value = v;
+      form.appendChild(input);
+    });
+  }
+
+  window.vnLinksApplyBulkEdit = function(){
+    const groupWrap = $('#vnBulkGroupWrap');
+    const iconWrap = $('#vnBulkIconUploadWrap');
+    const iconLib = $('#vnBulkIconLibraryWrap');
+    if (groupWrap) groupWrap.style.display = $('#vnBulkApplyGroup')?.checked ? 'block' : 'none';
+    const action = $('#vnBulkIconAction')?.value || 'keep';
+    if (iconWrap) iconWrap.style.display = (action === 'upload') ? 'block' : 'none';
+    if (iconLib) iconLib.style.display = (action === 'library') ? 'block' : 'none';
+  };
+
+  window.vnLinksOpenBulkEdit = function(){
+    const items = effectiveSelectedItems();
+    if (items.length < 2) return;
+    const bd = $('#vnBulkEditBackdrop');
+    const form = $('#vnBulkEditForm');
+    if (!bd || !form) return;
+    addSelectedInputs(form, items);
+    const count = $('#vnBulkEditCount');
+    if (count) count.textContent = `${items.length} items selected.`;
+    $('#vnBulkApplyGroup').checked = false;
+    $('#vnBulkIconAction').value = 'keep';
+    try{ $('#vnBulkIconFile').value = ''; }catch(e){}
+    resetIconChoices();
+    window.vnLinksApplyBulkEdit();
+    mountModalsToBody();
+    bd.classList.remove('hidden');
+  };
+
+  window.vnLinksCloseBulkEdit = function(ev){
+    try{
+      if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return;
+    }catch(e){}
+    const bd = $('#vnBulkEditBackdrop');
+    if (bd) bd.classList.add('hidden');
+  };
+
+  window.vnOpenIconManager = function(){
+    mountModalsToBody();
+    const bd = $('#vnIconManagerBackdrop');
+    if (bd) bd.classList.remove('hidden');
+  };
+
+  window.vnCloseIconManager = function(ev){
+    try{
+      if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return;
+    }catch(e){}
+    const bd = $('#vnIconManagerBackdrop');
+    if (bd) bd.classList.add('hidden');
+  };
+
+  window.vnDeleteManagedIcons = function(){
+    const form = $('#vnIconManagerDeleteForm');
+    if (!form) return;
+    const count = form.querySelectorAll('input[name="icons"]:checked').length;
+    if (!count) return;
+    if (!confirm(`Delete ${count} selected icon${count === 1 ? '' : 's'}? Items using deleted icons will fall back to their default icons.`)) return;
+    form.submit();
+  };
+
+  function vnEnsureContentUploadProgress(){
+    let wrap = document.getElementById('vnContentUploadProgress');
+    if (!wrap){
+      wrap = document.createElement('div');
+      wrap.id = 'vnContentUploadProgress';
+      wrap.className = 'vn-upload-progress';
+      wrap.hidden = true;
+      wrap.setAttribute('aria-live', 'polite');
+      wrap.innerHTML = `
+        <div class="vn-upload-progress-label">
+          <span id="vnContentUploadProgressText">Uploading...</span>
+          <span id="vnContentUploadProgressPct">0%</span>
+        </div>
+        <div class="vn-upload-progress-track">
+          <div id="vnContentUploadProgressBar" class="vn-upload-progress-bar"></div>
+        </div>`;
+    }
+    try{
+      if (wrap.parentElement !== document.body) document.body.appendChild(wrap);
+    }catch(e){}
+    return wrap;
+  }
+
+  function vnShowContentUploadProgress(percent, label){
+    const wrap = vnEnsureContentUploadProgress();
+    const bar = document.getElementById('vnContentUploadProgressBar');
+    const pct = document.getElementById('vnContentUploadProgressPct');
+    const text = document.getElementById('vnContentUploadProgressText');
+    if (!wrap || !bar || !pct) return;
+    if (window.vnContentUploadOverlayShow) window.vnContentUploadOverlayShow(percent, label);
+    wrap.hidden = false;
+    if (text && label) text.textContent = label;
+    if (Number.isFinite(percent)){
+      const n = Math.max(0, Math.min(100, Math.round(percent)));
+      wrap.classList.remove('is-indeterminate');
+      bar.style.width = n + '%';
+      pct.textContent = n + '%';
+    } else {
+      wrap.classList.add('is-indeterminate');
+      pct.textContent = '';
+    }
+  }
+
+  function vnHideContentUploadProgress(){
+    const wrap = $('#vnContentUploadProgress');
+    const bar = $('#vnContentUploadProgressBar');
+    if (wrap){
+      wrap.hidden = true;
+      wrap.classList.remove('is-indeterminate');
+    }
+    if (bar) bar.style.width = '0%';
+    if (window.vnContentUploadOverlayHide) window.vnContentUploadOverlayHide();
+  }
+
+  function vnSetContentFormBusy(form, busy){
+    const linksModal = $('#vnLinksModalBackdrop');
+    const bulkModal = $('#vnBulkEditBackdrop');
+    const bulkOpen = bulkModal && !bulkModal.classList.contains('hidden');
+    const modal = bulkOpen ? bulkModal : linksModal;
+    const scope = modal || form;
+    const saveBtn = bulkOpen ? document.getElementById('vnBulkEditSaveBtn') : document.getElementById('vnLinksSaveBtn');
+    if (saveBtn){
+      if (busy){
+        saveBtn.dataset.vnLabel = saveBtn.textContent || 'Save';
+        saveBtn.textContent = 'Uploading...';
+      } else {
+        saveBtn.textContent = saveBtn.dataset.vnLabel || 'Save';
+        delete saveBtn.dataset.vnLabel;
+      }
+    }
+    scope.querySelectorAll('button, input, select, textarea').forEach(el => {
+      if (busy){
+        el.dataset.vnWasDisabled = el.disabled ? '1' : '0';
+        el.disabled = true;
+      } else {
+        el.disabled = el.dataset.vnWasDisabled === '1';
+        delete el.dataset.vnWasDisabled;
+      }
+    });
+  }
+
+  let vnContentUploadInFlight = false;
+
+  function vnStartContentUpload(form, fd){
+    const xhr = new XMLHttpRequest();
+    xhr.open((form.method || 'POST').toUpperCase(), form.action || window.location.href, true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+    xhr.upload.addEventListener('loadstart', () => vnShowContentUploadProgress(0, 'Uploading...'));
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && e.total > 0) vnShowContentUploadProgress((e.loaded / e.total) * 100, 'Uploading...');
+      else vnShowContentUploadProgress(NaN, 'Uploading...');
+    });
+    xhr.upload.addEventListener('load', () => vnShowContentUploadProgress(NaN, 'Processing...'));
+
+    xhr.addEventListener('load', () => {
+      const finalUrl = xhr.responseURL || window.location.href;
+      if (xhr.status >= 200 && xhr.status < 400){
+        window.location.href = finalUrl;
+        return;
+      }
+      vnContentUploadInFlight = false;
+      vnSetContentFormBusy(form, false);
+      vnShowContentUploadProgress(100, 'Upload failed');
+      alert(xhr.responseText || ('Upload failed (' + xhr.status + ').'));
+    });
+
+    xhr.addEventListener('error', () => {
+      vnContentUploadInFlight = false;
+      vnSetContentFormBusy(form, false);
+      vnShowContentUploadProgress(100, 'Upload failed');
+      alert('Upload failed. Please try again.');
+    });
+
+    xhr.addEventListener('abort', () => {
+      vnContentUploadInFlight = false;
+      vnSetContentFormBusy(form, false);
+      vnShowContentUploadProgress(0, 'Upload canceled');
+    });
+
+    xhr.send(fd);
+  }
+
+  function vnSubmitContentFormWithProgress(form){
+    if (vnContentUploadInFlight) return;
+    const fd = new FormData(form);
+    vnContentUploadInFlight = true;
+    vnSetContentFormBusy(form, true);
+    vnShowContentUploadProgress(0, 'Preparing upload...');
+    const start = () => vnStartContentUpload(form, fd);
+    if (window.requestAnimationFrame){
+      requestAnimationFrame(() => setTimeout(start, 50));
+    } else {
+      setTimeout(start, 50);
+    }
+  }
+
+  window.vnLinksSaveFromModal = function(){
+    if (!modalOpen) return;
+    if (activeIconChoiceMissing()){
+      alert('Choose an existing icon first.');
+      return;
+    }
+    if (!validateHaFields()) return;
+    vnShowContentUploadProgress(0, 'Preparing upload...');
+    syncPositionFields();
+    const form = $('#vnLinksModalForm');
+    if (!form) {
+      vnHideContentUploadProgress();
+      return;
+    }
+    if (!form.reportValidity || form.reportValidity()){
+      vnSubmitContentFormWithProgress(form);
+    } else {
+      vnHideContentUploadProgress();
+    }
+  };
+
+  $('#vnLinksModalForm')?.addEventListener('submit', function(e){
+    e.preventDefault();
+    if (!modalOpen) return;
+    if (activeIconChoiceMissing()){
+      alert('Choose an existing icon first.');
+      return;
+    }
+    if (!validateHaFields()) return;
+    vnShowContentUploadProgress(0, 'Preparing upload...');
+    syncPositionFields();
+    if (!this.reportValidity || this.reportValidity()){
+      vnSubmitContentFormWithProgress(this);
+    } else {
+      vnHideContentUploadProgress();
+    }
+  });
+
+  window.vnLinksSaveBulkEdit = function(){
+    const form = $('#vnBulkEditForm');
+    if (!form) return;
+    const items = effectiveSelectedItems();
+    if (items.length < 2) return;
+    if (($('#vnBulkIconAction')?.value || '') === 'library' && !($('#vnBulkIconChoice')?.value || '')){
+      alert('Choose an existing icon first.');
+      return;
+    }
+    addSelectedInputs(form, items);
+    if (!form.reportValidity || form.reportValidity()){
+      vnSubmitContentFormWithProgress(form);
+    }
+  };
+
+  $('#vnBulkEditForm')?.addEventListener('submit', function(e){
+    e.preventDefault();
+    const items = effectiveSelectedItems();
+    if (items.length < 2) return;
+    if (($('#vnBulkIconAction')?.value || '') === 'library' && !($('#vnBulkIconChoice')?.value || '')){
+      alert('Choose an existing icon first.');
+      return;
+    }
+    addSelectedInputs(this, items);
+    if (!this.reportValidity || this.reportValidity()){
+      vnSubmitContentFormWithProgress(this);
+    }
+  });
+
+  window.vnLinksDeleteSelected = function(){
+    let items = effectiveSelectedItems();
+    if (!items.length) return;
+    let msg = items.length === 1 ? 'Delete selected item?' : `Delete ${items.length} selected items?`;
+    let deleteGroupContents = '0';
+    if (selectionHasGroup(items)){
+      if (!confirm(msg + '\n\nFor selected groups, choose OK on the next prompt if you also want to delete items inside those groups.')) return;
+      deleteGroupContents = confirm('Delete the items/files inside selected groups too?\n\nOK deletes group contents. Cancel only deletes the group and ungroups its contents.') ? '1' : '0';
+    } else if (!confirm(msg)){
+      return;
+    }
+    $('#vnDeleteSelected').value = items.join(',');
+    $('#vnDeleteGroupContents').value = deleteGroupContents;
+    $('#vnLinksDeleteForm').submit();
+  };
+
+  window.vnLinksDeleteCurrent = function(){
+    const mode = ($('#vnMode')?.value || '').trim();
+    const rowType = ($('#vnRowType')?.value || '').trim();
+    const id = ($('#vnId')?.value || '').trim();
+    const title = ($('#vnTitle')?.value || 'item').trim() || 'item';
+    if (mode !== 'edit' || !rowType || !id) return;
+    let deleteGroupContents = '0';
+    if (rowType === 'group'){
+      if (!confirm(`Delete group "${title}"?`)) return;
+      deleteGroupContents = confirm('Delete the items/files inside this group too?\n\nOK deletes group contents. Cancel only deletes the group and ungroups its contents.') ? '1' : '0';
+    } else if (!confirm(`Delete "${title}"?`)){
+      return;
+    }
+    $('#vnDeleteSelected').value = `${rowType}:${id}`;
+    $('#vnDeleteGroupContents').value = deleteGroupContents;
+    $('#vnLinksDeleteForm').submit();
+  };
+
+  window.vnLinksMoveSelected = function(){
+    let items = effectiveSelectedItems();
+    items = items.filter(v => !String(v).startsWith('group:'));
+    if (!items.length) return;
+    const form = $('#vnLinksMoveForm');
+    if (!form) return;
+    addSelectedInputs(form, items);
+    form.submit();
+  };
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') window.vnLinksCloseModal();
+  });
+
+  try{ $('#vnUrl')?.addEventListener('input', () => window.vnLinksUpdateEmbedHint()); }catch(e){}
+
+  setButtonsEnabled();
+  window.vnLinksApplyType();
+</script>
+
+
+  {% else %}
+    <div style="height:12px;"></div>
+
+    {% if items is defined and items|length > 0 %}
+      <div id="vnContentGrid" class="links-desktop-grid" style="margin-top:10px;" data-page="{{ page or 1 }}" data-page-size="32">
+        {% for it in items %}
+          {% set item_page = ((it.ord or 0) // 32) + 1 %}
+          {% set item_pos = (it.ord or 0) % 32 %}
+          {% if it.item_type == 'group' %}
+            {% set g = (groups|selectattr('id','equalto', it.id)|list|first) %}
+            <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                 data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                 data-title="{{ it.title|e }}" data-url="" data-target="" data-kind="group"
+                 data-group-id=""
+                 data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                 onclick="vnOpenGroupModal('{{ it.id }}')"
+                 onkeypress="if(event.key==='Enter'){ vnOpenGroupModal('{{ it.id }}'); }" >
+              <div class="attach-link" draggable="false">
+                <div class="attach-thumb link-thumb">
+                  {% if it.icon_stored_name %}
+                    <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                  {% else %}
+                    <div class="attach-fileicon" aria-hidden="true">📁</div>
+                  {% endif %}
+                </div>
+                <div class="attach-name">{{ it.title }}</div>
+              </div>
+            </div>
+          {% else %}
+            {% if it.item_kind and it.item_kind == 'app' %}
+              <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                   data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                   data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="_self" data-kind="app"
+                   data-embed="0" data-group-id=""
+                   data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                   onclick='window.location.href={{ url_for("content_app", app_id=it.url)|tojson }}'
+                   onkeypress='if(event.key==="Enter"){ window.location.href={{ url_for("content_app", app_id=it.url)|tojson }}; }'>
+                <div class="attach-link" draggable="false" title="Open {{ it.title|e }}">
+                  <div class="attach-thumb link-thumb">
+                    {% if it.icon_stored_name %}
+                      <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                    {% else %}
+                      <div class="attach-fileicon" aria-hidden="true">{% if it.url == 'sticky' %}🗒️{% elif it.url == 'ambient' %}🎧{% else %}🎮{% endif %}</div>
+                    {% endif %}
+                  </div>
+                  <div class="attach-name">{{ it.title }}</div>
+                </div>
+              </div>
+            {% elif it.item_kind and it.item_kind == 'ha' %}
+              <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                   data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                   data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="_self" data-kind="{{ it.item_kind or 'link' }}"
+                   data-embed="{{ it.embed or 0 }}"
+                   data-group-id="" data-ha-entity-id="{{ (it.ha_entity_id or '')|e }}" data-ha-entity-type="{{ (it.ha_entity_type or '')|e }}"
+                   data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                   onclick="vnActivateHaItem('{{ it.id }}', '{{ it.title|e }}')"
+                   onkeypress="if(event.key==='Enter'){ vnActivateHaItem('{{ it.id }}', '{{ it.title|e }}'); }">
+                <div class="attach-link" draggable="false" title="{{ it.title|e }}">
+                  <div class="attach-thumb link-thumb">
+                    {% if it.icon_stored_name %}
+                      <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                    {% else %}
+                      <div class="attach-fileicon" aria-hidden="true">HA</div>
+                    {% endif %}
+                  </div>
+                  <div class="attach-name">{{ it.title }}</div>
+                </div>
+              </div>
+            {% elif it.item_kind and it.item_kind == 'file' %}
+              {% set file_url = (it.url if it.url and it.url.startswith('/') else (upload_prefix ~ '/' ~ (it.url or ''))) %}
+              {% set fm = (it.file_mime or '') %}
+              {% if fm.startswith('image/') or fm.startswith('video/') or fm.startswith('audio/') %}
+                <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                                          data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                                          data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="{{ it.target if it.target else '_blank' }}" data-kind="{{ it.item_kind or 'link' }}"
+                                          data-embed="{{ it.embed or 0 }}"
+                                          data-group-id=""
+                                          data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                                          onclick='vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }})'
+                                          onkeypress='if(event.key==="Enter"){ vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }}); }'>
+                  <div class="attach-link" draggable="false" title="{{ (it.file_original_name or it.title)|e }}">
+              {% else %}
+                <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                     data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                     data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="{{ it.target if it.target else '_blank' }}" data-kind="{{ it.item_kind or 'link' }}"
+                     data-embed="{{ it.embed or 0 }}"
+                     data-group-id=""
+                     data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                     onclick="vnOpenUrl('{{ file_url }}', '_blank')"
+                     onkeypress="if(event.key==='Enter'){ vnOpenUrl('{{ file_url }}', '_blank'); }">
+                  <a class="attach-link" href="{{ file_url }}" target="_blank" rel="noopener" draggable="false" title="{{ (it.file_original_name or it.title)|e }}" onclick="event.stopPropagation()">
+              {% endif %}
+                    <div class="attach-thumb link-thumb">
+                      {% if it.icon_stored_name %}
+                        <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                      {% else %}
+                        {% if fm.startswith('image/') %}
+                          <img src="{{ file_url }}" alt="{{ it.title|e }}">
+                        {% elif fm.startswith('video/') %}
+                          <div class="attach-fileicon" aria-hidden="true">▶</div>
+                                                {% elif fm.startswith('audio/') %}
+                          <div class="attach-fileicon" aria-hidden="true">🎵</div>
+                        {% else %}
+                          <div class="attach-fileicon" aria-hidden="true">📎</div>
+                        {% endif %}
+                      {% endif %}
+                    </div>
+                    <div class="attach-name">{{ it.title }}</div>
+              {% if fm.startswith('image/') or fm.startswith('video/') or fm.startswith('audio/') %}
+                  </div>
+                </div>
+              {% else %}
+                  </a>
+                </div>
+              {% endif %}
+            {% elif it.embed and it.embed|int == 1 %}
+              <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                   data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                   data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="{{ it.target if it.target else '_blank' }}" data-kind="{{ it.item_kind or 'link' }}"
+                   data-embed="{{ it.embed or 0 }}"
+                   data-group-id=""
+                   data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                   onclick="vnOpenYouTubeModal('{{ it.url|e }}')"
+                   onkeypress="if(event.key==='Enter'){ vnOpenYouTubeModal('{{ it.url|e }}'); }">
+                <div class="attach-link" draggable="false" title="{{ it.url|e }}">
+                  <div class="attach-thumb link-thumb">
+                    {% if it.icon_stored_name %}
+                      <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                    {% else %}
+                      <div class="attach-fileicon" aria-hidden="true">▶</div>
+                    {% endif %}
+                  </div>
+                  <div class="attach-name">{{ it.title }}</div>
+                </div>
+              </div>
+            {% else %}
+              <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                   data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                   data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="{{ it.target if it.target else '_blank' }}" data-kind="{{ it.item_kind or 'link' }}"
+                   data-embed="{{ it.embed or 0 }}"
+                   data-group-id=""
+                   data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                   onclick="vnOpenUrl('{{ it.url|e }}','{{ it.target if it.target else '_blank' }}')"
+                   onkeypress="if(event.key==='Enter'){ vnOpenUrl('{{ it.url|e }}','{{ it.target if it.target else '_blank' }}'); }">
+                <a class="attach-link" href="{{ it.url }}" target="{{ it.target if it.target else '_blank' }}" rel="noopener" draggable="false" title="{{ it.url|e }}" onclick="event.stopPropagation()">
+                  <div class="attach-thumb link-thumb">
+                    {% if it.icon_stored_name %}
+                      <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                    {% else %}
+                      <div class="attach-fileicon" aria-hidden="true">🔗</div>
+                    {% endif %}
+                  </div>
+                  <div class="attach-name">{{ it.title }}</div>
+                </a>
+              </div>
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if total_pages and total_pages > 1 %}
+        <div style="height:12px;"></div>
+        <div style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap;">
+          {% if page > 1 %}
+            <a class="btn" href="{{ url_for('content', page=page-1) }}">Prev</a>
+          {% else %}
+            <button class="btn" type="button" disabled>Prev</button>
+          {% endif %}
+          <div class="muted">Page {{ page }} / {{ total_pages }}</div>
+          {% if page < total_pages %}
+            <a class="btn" href="{{ url_for('content', page=page+1) }}">Next</a>
+          {% else %}
+            <button class="btn" type="button" disabled>Next</button>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="muted" style="text-align:center; padding: 16px 0;">No links yet.</div>
+    {% endif %}
+
+    {% if can_edit %}
+      <script>
+        (function(){
+          const contentLockKey = 'vortnotes.content.interactionsUnlocked';
+          let contentInteractionsUnlocked = (localStorage.getItem(contentLockKey) === '1');
+
+          function setContentTileLocks(){
+            document.body.classList.toggle('content-reorder-unlocked', contentInteractionsUnlocked);
+            document.querySelectorAll('.content-reorder-item').forEach((item) => {
+              item.draggable = !!contentInteractionsUnlocked;
+              item.classList.toggle('drag-ready', !!contentInteractionsUnlocked);
+            });
+          }
+
+          window.vnContentInteractionsUnlocked = function(){
+            return !!contentInteractionsUnlocked;
+          };
+
+          window.vnApplyContentLockState = function(){
+            const btn = document.getElementById('vnContentLockToggle');
+            if (btn){
+              btn.classList.toggle('is-unlocked', contentInteractionsUnlocked);
+              btn.setAttribute('aria-pressed', contentInteractionsUnlocked ? 'false' : 'true');
+              btn.setAttribute(
+                'aria-label',
+                contentInteractionsUnlocked
+                  ? 'Lock icon moving'
+                  : 'Unlock icon moving'
+              );
+              btn.title = contentInteractionsUnlocked
+                ? 'Lock icon moving'
+                : 'Unlock icon moving';
+            }
+            setContentTileLocks();
+          };
+
+          window.vnToggleContentLock = function(){
+            contentInteractionsUnlocked = !contentInteractionsUnlocked;
+            localStorage.setItem(contentLockKey, contentInteractionsUnlocked ? '1' : '0');
+            window.vnApplyContentLockState();
+          };
+
+          window.vnMakeContentReorder = function(grid, opts){
+            opts = opts || {};
+            if (!grid || grid.dataset.reorderBound === '1') return;
+            grid.dataset.reorderBound = '1';
+
+            const page = parseInt(opts.page || grid.dataset.page || '1', 10) || 1;
+            const pageSize = parseInt(opts.pageSize || grid.dataset.pageSize || '32', 10) || 32;
+            const pageOffset = Math.max(0, page - 1) * pageSize;
+            const groupId = opts.groupId || grid.dataset.groupId || '';
+            let draggingEl = null;
+            let groupDropTarget = null;
+            let rootDropArmed = false;
+            let suppressClickUntil = 0;
+
+            function contentItems(){
+              return [...grid.querySelectorAll('.content-reorder-item')];
+            }
+
+            function buildState(){
+              return contentItems().map((item, idx) => ({
+                item_type: item.dataset.itemType || '',
+                id: Number(item.dataset.itemId),
+                group_id: groupId || item.dataset.groupId || '',
+                order: pageOffset + idx
+              }));
+            }
+
+            async function saveOrder(){
+              try{
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const resp = await fetch('/content/reorder', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRFToken': token
+                  },
+                  body: JSON.stringify({items: buildState()})
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const data = await resp.json();
+                if (!data.ok) throw new Error(data.error || 'Save failed');
+              }catch(e){
+                try{ alert('Could not save order. Refresh and try again.'); }catch(_){}
+              }
+            }
+
+            async function moveDraggedIntoGroup(target){
+              if (!draggingEl || !target) return false;
+              const movedEl = draggingEl;
+              const draggedType = movedEl.dataset.itemType || '';
+              const targetType = target.dataset.itemType || '';
+              const draggedId = movedEl.dataset.itemId || '';
+              const groupTargetId = target.dataset.itemId || '';
+              if (draggedType !== 'link' || targetType !== 'group' || !draggedId || !groupTargetId) return false;
+              try{
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const resp = await fetch('/content/item/drop-to-group', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRFToken': token
+                  },
+                  body: JSON.stringify({id: Number(draggedId), group_id: Number(groupTargetId)})
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) throw new Error(data.error || 'Move failed');
+                movedEl.remove();
+                window.vnContentRootNeedsRefresh = true;
+                return true;
+              }catch(e){
+                try{ alert('Could not move item into group. Refresh and try again.'); }catch(_){}
+                return false;
+              }
+            }
+
+            async function moveDraggedToRoot(){
+              if (!draggingEl) return false;
+              const movedEl = draggingEl;
+              const draggedType = movedEl.dataset.itemType || '';
+              const draggedId = movedEl.dataset.itemId || '';
+              if (draggedType !== 'link' || !draggedId) return false;
+              try{
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const resp = await fetch('/content/item/drop-to-root', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRFToken': token
+                  },
+                  body: JSON.stringify({id: Number(draggedId)})
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) throw new Error(data.error || 'Move failed');
+                movedEl.remove();
+                window.vnContentRootNeedsRefresh = true;
+                return true;
+              }catch(e){
+                try{ alert('Could not move item out of group. Refresh and try again.'); }catch(_){}
+                return false;
+              }
+            }
+
+            function clearGroupDropTarget(){
+              if (groupDropTarget) groupDropTarget.classList.remove('vn-group-drop-target');
+              groupDropTarget = null;
+            }
+
+            function setRootDropArmed(armed){
+              rootDropArmed = !!armed;
+              const backdrop = document.getElementById('vnGroupModalBackdrop');
+              if (backdrop) backdrop.classList.toggle('vn-root-drop-target', rootDropArmed);
+            }
+
+            function isOutsideGroupModal(e){
+              const modal = document.querySelector('#vnGroupModalBackdrop .vn-modal');
+              return !!(groupId && draggingEl && modal && !(e.target && e.target.closest && e.target.closest('#vnGroupModalBackdrop .vn-modal')));
+            }
+
+            function groupTargetFromEvent(e){
+              if (!draggingEl || draggingEl.dataset.itemType !== 'link') return null;
+              const groups = [...grid.querySelectorAll('.content-reorder-item[data-item-type="group"]')];
+              for (const group of groups){
+                if (group === draggingEl) continue;
+                const rect = group.getBoundingClientRect();
+                const padX = Math.max(28, rect.width * 0.22);
+                const padY = Math.max(18, rect.height * 0.14);
+                if (
+                  e.clientX >= rect.left - padX &&
+                  e.clientX <= rect.right + padX &&
+                  e.clientY >= rect.top - padY &&
+                  e.clientY <= rect.bottom + padY
+                ){
+                  return group;
+                }
+              }
+              const target = e.target && e.target.closest ? e.target.closest('.content-reorder-item[data-item-type="group"]') : null;
+              if (!target || target === draggingEl) return null;
+              return target;
+            }
+
+            grid.addEventListener('click', (e) => {
+              if (Date.now() < suppressClickUntil){
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }
+            }, true);
+
+            contentItems().forEach((item) => {
+              item.draggable = !!(window.vnContentInteractionsUnlocked && window.vnContentInteractionsUnlocked());
+              item.classList.toggle('drag-ready', !!(window.vnContentInteractionsUnlocked && window.vnContentInteractionsUnlocked()));
+              item.addEventListener('dragstart', (e) => {
+                if (!window.vnContentInteractionsUnlocked || !window.vnContentInteractionsUnlocked()){
+                  e.preventDefault();
+                  return false;
+                }
+                draggingEl = item;
+                item.classList.add('dragging');
+                suppressClickUntil = Date.now() + 1800;
+                try{
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', `${item.dataset.itemType}:${item.dataset.itemId}`);
+                }catch(err){}
+              });
+              item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                clearGroupDropTarget();
+                setRootDropArmed(false);
+                draggingEl = null;
+              });
+            });
+
+            if (groupId){
+              const backdrop = document.getElementById('vnGroupModalBackdrop');
+              if (backdrop){
+                backdrop.addEventListener('dragover', (e) => {
+                  if (!window.vnContentInteractionsUnlocked || !window.vnContentInteractionsUnlocked()) return;
+                  if (!isOutsideGroupModal(e)) {
+                    setRootDropArmed(false);
+                    return;
+                  }
+                  e.preventDefault();
+                  setRootDropArmed(true);
+                  try{ e.dataTransfer.dropEffect = 'move'; }catch(err){}
+                });
+                backdrop.addEventListener('dragleave', (e) => {
+                  if (!backdrop.contains(e.relatedTarget)) setRootDropArmed(false);
+                });
+                backdrop.addEventListener('drop', (e) => {
+                  if (!window.vnContentInteractionsUnlocked || !window.vnContentInteractionsUnlocked()) return;
+                  if (!isOutsideGroupModal(e)) return;
+                  e.preventDefault();
+                  moveDraggedToRoot().then((ok) => {
+                    setRootDropArmed(false);
+                    if (ok) draggingEl = null;
+                  });
+                });
+              }
+            }
+
+            grid.addEventListener('dragover', (e) => {
+              if (!window.vnContentInteractionsUnlocked || !window.vnContentInteractionsUnlocked()) return;
+              e.preventDefault();
+              if (!draggingEl) return;
+              setRootDropArmed(false);
+
+              const dropGroup = groupTargetFromEvent(e);
+              if (dropGroup){
+                if (groupDropTarget !== dropGroup){
+                  clearGroupDropTarget();
+                  groupDropTarget = dropGroup;
+                  groupDropTarget.classList.add('vn-group-drop-target');
+                }
+                try{ e.dataTransfer.dropEffect = 'move'; }catch(err){}
+                return;
+              }
+              clearGroupDropTarget();
+
+              const rect = grid.getBoundingClientRect();
+              const first = grid.querySelector('.content-reorder-item');
+              if (!first) return;
+
+              const firstRect = first.getBoundingClientRect();
+              const cs = getComputedStyle(grid);
+              let cols = 1;
+              const gtc = (cs.gridTemplateColumns || '').trim();
+              if (gtc && gtc !== 'none') cols = gtc.split(/\s+/).length;
+
+              const colGap = parseFloat(cs.columnGap || cs.gridColumnGap || '0') || 0;
+              const rowGap = parseFloat(cs.rowGap || cs.gridRowGap || '0') || 0;
+              const cellW = firstRect.width + colGap;
+              const cellH = firstRect.height + rowGap;
+
+              const x = e.clientX - rect.left;
+              const y = e.clientY - rect.top;
+              let col = Math.floor(x / cellW);
+              let row = Math.floor(y / cellH);
+              col = Math.max(0, Math.min(cols - 1, col));
+              row = Math.max(0, row);
+
+              let index = row * cols + col;
+              const children = contentItems();
+              index = Math.max(0, Math.min(children.length, index));
+              const target = children[index] || null;
+              if (!target){
+                grid.appendChild(draggingEl);
+                return;
+              }
+              if (target === draggingEl) return;
+
+              const currentIdx = children.indexOf(draggingEl);
+              const targetIdx = children.indexOf(target);
+              if (currentIdx < targetIdx) grid.insertBefore(draggingEl, target.nextSibling);
+              else grid.insertBefore(draggingEl, target);
+            });
+
+            grid.addEventListener('drop', (e) => {
+              if (!window.vnContentInteractionsUnlocked || !window.vnContentInteractionsUnlocked()) return;
+              e.preventDefault();
+              if (!draggingEl) return;
+              const dropGroup = groupTargetFromEvent(e) || groupDropTarget;
+              if (dropGroup){
+                moveDraggedIntoGroup(dropGroup).then((ok) => {
+                  clearGroupDropTarget();
+                  if (ok){
+                    draggingEl = null;
+                  }
+                });
+                return;
+              }
+              clearGroupDropTarget();
+              saveOrder();
+            });
+          };
+
+          function fillPageOptions(select, totalPages, currentPage){
+            if (!select) return;
+            select.innerHTML = '';
+            totalPages = Math.max(1, parseInt(totalPages || '1', 10) || 1);
+            currentPage = Math.max(1, parseInt(currentPage || '1', 10) || 1);
+            for (let i = 1; i <= totalPages; i++){
+              const opt = document.createElement('option');
+              opt.value = String(i);
+              opt.textContent = 'Page ' + i;
+              if (i === currentPage) opt.selected = true;
+              select.appendChild(opt);
+            }
+          }
+
+          function fillPositionOptions(select, totalItems, totalPages, currentPage, currentPosition, originalPage){
+            if (!select) return;
+            const pageSize = 32;
+            totalItems = Math.max(0, parseInt(totalItems || '0', 10) || 0);
+            totalPages = Math.max(1, parseInt(totalPages || '1', 10) || 1);
+            currentPage = Math.max(1, parseInt(currentPage || '1', 10) || 1);
+            currentPosition = Math.max(0, parseInt(currentPosition || '0', 10) || 0);
+            originalPage = Math.max(1, parseInt(originalPage || currentPage || '1', 10) || 1);
+            const pageStart = (currentPage - 1) * pageSize;
+            let countOnPage = Math.max(0, Math.min(pageSize, totalItems - pageStart));
+            if (currentPage >= totalPages && currentPage !== originalPage && countOnPage < pageSize) countOnPage += 1;
+            countOnPage = Math.max(1, Math.min(pageSize, countOnPage));
+            select.innerHTML = '';
+            for (let i = 0; i < countOnPage; i++){
+              const opt = document.createElement('option');
+              opt.value = String(i);
+              opt.textContent = String(i);
+              if (i === Math.min(currentPosition, countOnPage - 1)) opt.selected = true;
+              select.appendChild(opt);
+            }
+          }
+
+          window.vnUpdatePropsPositions = function(){
+            const pageSelect = document.getElementById('vnPropsPage');
+            const posSelect = document.getElementById('vnPropsPosition');
+            const totalItems = document.getElementById('vnPropsTotalItems')?.value || '0';
+            const originalPage = document.getElementById('vnPropsOriginalPage')?.value || '1';
+            fillPositionOptions(
+              posSelect,
+              totalItems,
+              pageSelect ? pageSelect.options.length : 1,
+              pageSelect ? pageSelect.value : 1,
+              posSelect ? posSelect.value : 0,
+              originalPage
+            );
+          };
+
+          window.vnContentEditUpdatePositions = function(){
+            const pageSelect = document.getElementById('vnContentEditPage');
+            const posSelect = document.getElementById('vnContentEditPosition');
+            const totalItems = document.getElementById('vnContentEditTotalItems')?.value || '0';
+            const originalPage = document.getElementById('vnContentEditOriginalPage')?.value || '1';
+            fillPositionOptions(
+              posSelect,
+              totalItems,
+              pageSelect ? pageSelect.options.length : 1,
+              pageSelect ? pageSelect.value : 1,
+              posSelect ? posSelect.value : 0,
+              originalPage
+            );
+          };
+
+          function vnContentSetIconChoice(targetId, value){
+            const input = document.getElementById(targetId);
+            if (!input) return;
+            input.value = value || '';
+            document.querySelectorAll(`.vn-content-icon-picker[data-target="${targetId}"] .vn-icon-choice`).forEach((btn) => {
+              btn.classList.toggle('selected', !!value && btn.dataset.icon === value);
+            });
+          }
+
+          function vnContentResetIconChoices(){
+            ['vnContentIconChoice', 'vnContentFileIconChoice', 'vnContentGroupIconChoice', 'vnContentHaIconChoice'].forEach((id) => vnContentSetIconChoice(id, ''));
+          }
+
+          window.vnContentChooseIcon = function(ev, targetId, value){
+            if (ev){
+              try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
+            }
+            vnContentSetIconChoice(targetId, value || '');
+          };
+
+          function vnContentHaSetPickerStatus(text){
+            const status = document.getElementById('vnContentHaPickerStatus');
+            if (status) status.textContent = text || '';
+          }
+
+          function vnContentHaClearPicker(){
+            const picker = document.getElementById('vnContentHaEntityPicker');
+            if (picker){
+              picker.innerHTML = '<option value="">Choose an entity...</option>';
+              picker.style.display = 'none';
+            }
+          }
+
+          function vnContentHaHighlightSelection(){
+            const picker = document.getElementById('vnContentHaEntityPicker');
+            const current = (document.getElementById('vnContentHaEntityId')?.value || '').trim();
+            if (picker) picker.value = current || '';
+          }
+
+          window.vnContentHaApplyType = function(){
+            const type = document.getElementById('vnContentHaEntityType')?.value || 'scene';
+            const entity = document.getElementById('vnContentHaEntityId');
+            if (entity && entity.value && !entity.value.startsWith(type + '.')) entity.value = '';
+            vnContentHaClearPicker();
+            vnContentHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
+          };
+
+          window.vnContentHaChooseSelectedEntity = function(){
+            const picker = document.getElementById('vnContentHaEntityPicker');
+            if (!picker) return;
+            const opt = picker.options[picker.selectedIndex];
+            const input = document.getElementById('vnContentHaEntityId');
+            if (input) input.value = picker.value || '';
+            const title = document.getElementById('vnContentEditTitle');
+            const label = opt ? (opt.dataset.name || opt.textContent || '') : '';
+            if (title && !(title.value || '').trim()) title.value = label || picker.value || '';
+          };
+
+          window.vnContentHaLoadEntities = async function(){
+            const type = document.getElementById('vnContentHaEntityType')?.value || 'scene';
+            const picker = document.getElementById('vnContentHaEntityPicker');
+            if (!picker) return;
+            picker.style.display = 'block';
+            picker.innerHTML = '<option value="">Loading...</option>';
+            vnContentHaSetPickerStatus('Loading Home Assistant ' + type + 's...');
+            try{
+              const resp = await fetch(`{{ url_for('content_ha_entities') }}?type=${encodeURIComponent(type)}`, {
+                headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
+              });
+              const data = await resp.json();
+              if (!resp.ok || !data.ok) throw new Error(data.error || 'Unable to load Home Assistant entities.');
+              const entities = data.entities || [];
+              picker.innerHTML = '<option value="">Choose an entity...</option>';
+              if (!entities.length){
+                vnContentHaSetPickerStatus('No ' + type + 's were returned by Home Assistant.');
+                return;
+              }
+              for (const ent of entities){
+                const opt = document.createElement('option');
+                opt.value = ent.entity_id || '';
+                opt.dataset.name = ent.name || '';
+                opt.textContent = `${ent.name || ent.entity_id || ''} (${ent.entity_id || ''})`;
+                picker.appendChild(opt);
+              }
+              picker.style.display = 'block';
+              vnContentHaSetPickerStatus('Choose a ' + type + '.');
+              vnContentHaHighlightSelection();
+            }catch(err){
+              vnContentHaSetPickerStatus(err && err.message ? err.message : 'Unable to load Home Assistant entities.');
+            }
+          };
+
+          window.vnContentEditApplyIconAction = function(){
+            const rt = document.getElementById('vnContentEditRowType')?.value || 'link';
+            const defs = [
+              ['link', 'vnContentIconAction', 'vnContentIconUploadWrap', 'vnContentIconLibraryWrap'],
+              ['file', 'vnContentFileIconAction', 'vnContentFileIconUploadWrap', 'vnContentFileIconLibraryWrap'],
+              ['group', 'vnContentGroupIconAction', 'vnContentGroupIconUploadWrap', 'vnContentGroupIconLibraryWrap'],
+              ['ha', 'vnContentHaIconAction', 'vnContentHaIconUploadWrap', 'vnContentHaIconLibraryWrap']
+            ];
+            defs.forEach(([kind, actionId, uploadId, libraryId]) => {
+              const action = document.getElementById(actionId)?.value || 'keep';
+              const upload = document.getElementById(uploadId);
+              const library = document.getElementById(libraryId);
+              if (upload) upload.style.display = (rt === kind && action === 'upload') ? 'block' : 'none';
+              if (library) library.style.display = (rt === kind && action === 'library') ? 'block' : 'none';
+            });
+          };
+
+          window.vnContentEditApplyType = function(){
+            const displayType = document.getElementById('vnContentEditTypeDisplay');
+            const rowTypeInput = document.getElementById('vnContentEditRowType');
+            if (displayType && rowTypeInput && !displayType.disabled) rowTypeInput.value = displayType.value || 'link';
+            const rt = rowTypeInput?.value || displayType?.value || 'link';
+            const sections = [
+              ['link', document.getElementById('vnContentLinkFields')],
+              ['file', document.getElementById('vnContentFileFields')],
+              ['group', document.getElementById('vnContentGroupFields')],
+              ['ha', document.getElementById('vnContentHaFields')],
+              ['app', document.getElementById('vnContentAppFields')]
+            ];
+            sections.forEach(([kind, section]) => {
+              if (!section) return;
+              const active = rt === kind;
+              section.style.display = active ? 'block' : 'none';
+              section.querySelectorAll('input,select,textarea').forEach((el) => {
+                if (active) el.removeAttribute('disabled');
+                else el.setAttribute('disabled', 'disabled');
+              });
+            });
+            window.vnContentEditApplyIconAction();
+          };
+
+          window.vnContentCloseEditModal = function(ev){
+            try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+            const bd = document.getElementById('vnContentEditBackdrop');
+            if (bd) bd.classList.add('hidden');
+          };
+
+          function vnContentOpenEditBackdrop(title){
+            const bd = document.getElementById('vnContentEditBackdrop');
+            const modalTitle = document.getElementById('vnContentEditModalTitle');
+            if (modalTitle) modalTitle.textContent = title || 'Edit item';
+            if (bd){
+              try{ if (bd.parentElement !== document.body) document.body.appendChild(bd); }catch(e){}
+              bd.classList.remove('hidden');
+            }
+          }
+
+          function vnContentResetAddEditFields(){
+            try{ document.getElementById('vnContentFileFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentFileIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentGroupIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentHaIconFile').value = ''; }catch(e){}
+            vnContentResetIconChoices();
+            document.getElementById('vnContentEditTitle').value = '';
+            document.getElementById('vnContentUrl').value = '';
+            document.getElementById('vnContentTarget').value = '_blank';
+            document.getElementById('vnContentGroupId').value = '';
+            document.getElementById('vnContentEmbed').checked = false;
+            document.getElementById('vnContentFileGroupId').value = '';
+            document.getElementById('vnContentHaGroupId').value = '';
+            document.getElementById('vnContentHaEntityType').value = 'scene';
+            document.getElementById('vnContentHaEntityId').value = '';
+            document.getElementById('vnContentAppId').value = 'tetris';
+            document.getElementById('vnContentAppGroupId').value = '';
+            vnContentHaClearPicker();
+            vnContentHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
+            document.getElementById('vnContentIconAction').value = 'keep';
+            document.getElementById('vnContentFileIconAction').value = 'keep';
+            document.getElementById('vnContentGroupIconAction').value = 'keep';
+            document.getElementById('vnContentHaIconAction').value = 'keep';
+          }
+
+          window.vnContentOpenAdd = function(groupId){
+            groupId = (groupId || '').toString();
+            const currentPage = Math.max(1, parseInt(document.getElementById('vnContentGrid')?.dataset.page || '{{ page or 1 }}', 10) || 1);
+            const totalPages = Math.max(1, parseInt('{{ total_pages or 1 }}', 10) || 1);
+            const totalItems = Math.max(0, parseInt('{{ total_count or 0 }}', 10) || 0);
+            document.getElementById('vnContentEditMode').value = 'add';
+            document.getElementById('vnContentEditId').value = '';
+            document.getElementById('vnContentEditRowType').value = 'link';
+            document.getElementById('vnContentEditTypeDisplay').value = 'link';
+            document.getElementById('vnContentEditTypeDisplay').disabled = false;
+            document.getElementById('vnContentEditTotalItems').value = String(totalItems + 1);
+            document.getElementById('vnContentEditOriginalPage').value = '0';
+            fillPageOptions(document.getElementById('vnContentEditPage'), totalPages, currentPage);
+            fillPositionOptions(document.getElementById('vnContentEditPosition'), totalItems + 1, totalPages, currentPage, 31, '0');
+            vnContentResetAddEditFields();
+            document.getElementById('vnContentGroupId').value = groupId;
+            document.getElementById('vnContentFileGroupId').value = groupId;
+            document.getElementById('vnContentHaGroupId').value = groupId;
+            document.getElementById('vnContentAppGroupId').value = groupId;
+            const del = document.getElementById('vnContentEditDeleteBtn');
+            if (del) del.style.display = 'none';
+            window.vnContentEditApplyType();
+            vnContentOpenEditBackdrop('Add item');
+          };
+
+          window.vnContentPrepareEditSubmit = function(){
+            const page = Math.max(1, parseInt(document.getElementById('vnContentEditPage')?.value || '1', 10) || 1);
+            const pos = Math.max(0, parseInt(document.getElementById('vnContentEditPosition')?.value || '0', 10) || 0);
+            const order = document.getElementById('vnContentEditOrderNum');
+            if (order) order.value = String(((page - 1) * 32) + pos);
+            const ret = document.getElementById('vnContentEditReturnTo');
+            if (ret) ret.value = `${window.location.pathname}${window.location.search}`;
+            const rt = document.getElementById('vnContentEditRowType')?.value || 'link';
+            if (rt === 'ha'){
+              const type = document.getElementById('vnContentHaEntityType')?.value || 'scene';
+              const entity = (document.getElementById('vnContentHaEntityId')?.value || '').trim();
+              if (!entity || !entity.startsWith(type + '.')){
+                alert('Choose or enter a valid Home Assistant ' + type + ' entity first.');
+                return false;
+              }
+            }
+            const choiceChecks = [
+              ['link', 'vnContentIconAction', 'vnContentIconChoice'],
+              ['file', 'vnContentFileIconAction', 'vnContentFileIconChoice'],
+              ['group', 'vnContentGroupIconAction', 'vnContentGroupIconChoice'],
+              ['ha', 'vnContentHaIconAction', 'vnContentHaIconChoice']
+            ];
+            for (const [kind, actionId, choiceId] of choiceChecks){
+              if (rt === kind && (document.getElementById(actionId)?.value || '') === 'library' && !(document.getElementById(choiceId)?.value || '')){
+                alert('Choose an existing icon first.');
+                return false;
+              }
+            }
+            return true;
+          };
+
+          window.vnOpenContentProps = function(item){
+            if (!item) return;
+            const type = item.dataset.itemType || '';
+            const kind = item.dataset.kind || 'link';
+            const rowType = type === 'group' ? 'group' : (kind || 'link');
+            document.getElementById('vnContentEditMode').value = 'edit';
+            document.getElementById('vnContentEditId').value = item.dataset.itemId || '';
+            document.getElementById('vnContentEditRowType').value = rowType;
+            document.getElementById('vnContentEditTypeDisplay').value = rowType;
+            document.getElementById('vnContentEditTypeDisplay').disabled = true;
+            document.getElementById('vnContentEditTitle').value = item.dataset.title || '';
+            document.getElementById('vnContentEditTotalItems').value = item.dataset.totalItems || '0';
+            document.getElementById('vnContentEditOriginalPage').value = item.dataset.page || '1';
+            fillPageOptions(
+              document.getElementById('vnContentEditPage'),
+              item.dataset.totalPages || '1',
+              item.dataset.page || '1'
+            );
+            fillPositionOptions(
+              document.getElementById('vnContentEditPosition'),
+              item.dataset.totalItems || '0',
+              item.dataset.totalPages || '1',
+              item.dataset.page || '1',
+              item.dataset.position || '0',
+              item.dataset.page || '1'
+            );
+
+            try{ document.getElementById('vnContentFileFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentFileIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentGroupIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentHaIconFile').value = ''; }catch(e){}
+            vnContentResetIconChoices();
+
+            document.getElementById('vnContentUrl').value = item.dataset.url || '';
+            document.getElementById('vnContentTarget').value = item.dataset.target || '_blank';
+            document.getElementById('vnContentGroupId').value = item.dataset.groupId || '';
+            document.getElementById('vnContentEmbed').checked = (item.dataset.embed || '0') === '1';
+            document.getElementById('vnContentFileGroupId').value = item.dataset.groupId || '';
+            document.getElementById('vnContentHaGroupId').value = item.dataset.groupId || '';
+            document.getElementById('vnContentHaEntityType').value = item.dataset.haEntityType || 'scene';
+            document.getElementById('vnContentHaEntityId').value = item.dataset.haEntityId || '';
+            document.getElementById('vnContentAppId').value = item.dataset.url || 'tetris';
+            document.getElementById('vnContentAppGroupId').value = item.dataset.groupId || '';
+            vnContentHaClearPicker();
+            vnContentHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
+            document.getElementById('vnContentIconAction').value = 'keep';
+            document.getElementById('vnContentFileIconAction').value = 'keep';
+            document.getElementById('vnContentGroupIconAction').value = 'keep';
+            document.getElementById('vnContentHaIconAction').value = 'keep';
+            window.vnContentEditApplyType();
+            const del = document.getElementById('vnContentEditDeleteBtn');
+            if (del) del.style.display = '';
+            vnContentOpenEditBackdrop('Edit item');
+          };
+
+          window.vnCloseContentProps = function(ev){
+            try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+            const bd = document.getElementById('vnContentPropsBackdrop');
+            if (bd) bd.classList.add('hidden');
+          };
+
+          window.vnSaveContentProps = async function(){
+            const payload = {
+              item_type: document.getElementById('vnPropsType').value,
+              id: document.getElementById('vnPropsId').value,
+              group_id: document.getElementById('vnPropsGroupId').value,
+              title: document.getElementById('vnPropsTitle').value,
+              url: document.getElementById('vnPropsUrl').value,
+              target: document.getElementById('vnPropsTarget').value,
+              page: document.getElementById('vnPropsPage').value,
+              position: document.getElementById('vnPropsPosition').value
+            };
+            try{
+              const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+              const resp = await fetch('/content/item/properties', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+                  'X-CSRFToken': token
+                },
+                body: JSON.stringify(payload)
+              });
+              const data = await resp.json();
+              if (!resp.ok || !data.ok) throw new Error(data.error || 'Save failed');
+              window.vnCloseContentProps();
+              const groupBackdrop = document.getElementById('vnGroupModalBackdrop');
+              const groupOpen = groupBackdrop && !groupBackdrop.classList.contains('hidden');
+              if (groupOpen && window.vnRefreshOpenGroup){
+                window.vnRefreshOpenGroup(data.page || null);
+              } else {
+                window.location.reload();
+              }
+            }catch(e){
+              alert('Could not save item properties. Check the fields and try again.');
+            }
+          };
+
+          window.vnDeleteContentProps = function(){
+            const rowType = document.getElementById('vnContentEditRowType')?.value || '';
+            const type = rowType === 'group' ? 'group' : 'link';
+            const id = document.getElementById('vnContentEditId')?.value || '';
+            const title = document.getElementById('vnContentEditTitle')?.value || 'item';
+            window.vnContentDeleteItem(type, id, title);
+          };
+
+          window.vnContentDeleteItem = function(type, id, title){
+            if (!type || !id) return;
+            let deleteGroupContents = '0';
+            if (type === 'group'){
+              if (!confirm(`Delete group "${title}"?`)) return;
+              deleteGroupContents = confirm('Delete the items/files inside this group too?\n\nOK deletes group contents. Cancel only deletes the group and ungroups its contents.') ? '1' : '0';
+            } else if (!confirm(`Delete "${title}"?`)){
+              return;
+            }
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = '{{ url_for("content_item_delete") }}';
+            form.style.display = 'none';
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrf_token';
+            csrf.value = token;
+            const selected = document.createElement('input');
+            selected.type = 'hidden';
+            selected.name = 'selected_items';
+            selected.value = `${type}:${id}`;
+            const groupContents = document.createElement('input');
+            groupContents.type = 'hidden';
+            groupContents.name = 'delete_group_contents';
+            groupContents.value = deleteGroupContents;
+            const returnTo = document.createElement('input');
+            returnTo.type = 'hidden';
+            returnTo.name = 'return_to';
+            returnTo.value = `${window.location.pathname}${window.location.search}`;
+            form.appendChild(csrf);
+            form.appendChild(selected);
+            form.appendChild(groupContents);
+            form.appendChild(returnTo);
+            document.body.appendChild(form);
+            form.submit();
+          };
+
+          let vnContentContextItem = null;
+          let vnContentContextGroupId = '';
+
+          window.vnContentHideContextMenu = function(){
+            const menu = document.getElementById('vnContentContextMenu');
+            if (menu) menu.hidden = true;
+          };
+
+          window.vnContentShowContextMenu = function(ev, item, groupId){
+            if (ev){
+              ev.preventDefault();
+              ev.stopPropagation();
+            }
+            vnContentContextItem = item || null;
+            vnContentContextGroupId = (groupId || item?.dataset?.groupId || '').toString();
+            const menu = document.getElementById('vnContentContextMenu');
+            if (!menu) return;
+            try{
+              if (menu.parentElement !== document.body) document.body.appendChild(menu);
+            }catch(e){}
+            const hasItem = !!vnContentContextItem;
+            menu.querySelectorAll('[data-item-action]').forEach((btn) => {
+              btn.hidden = !hasItem;
+              btn.style.display = hasItem ? 'block' : 'none';
+            });
+            menu.hidden = false;
+            const x = (ev ? ev.clientX : 20) + 2;
+            const y = (ev ? ev.clientY : 20) + 2;
+            const rect = menu.getBoundingClientRect();
+            const left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8));
+            const top = Math.max(8, Math.min(y, window.innerHeight - rect.height - 8));
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+          };
+
+          window.vnContentContextAdd = function(){
+            window.vnContentHideContextMenu();
+            window.vnContentOpenAdd(vnContentContextGroupId);
+          };
+
+          window.vnContentContextEdit = function(){
+            const item = vnContentContextItem;
+            window.vnContentHideContextMenu();
+            if (item) window.vnOpenContentProps(item);
+          };
+
+          window.vnContentContextDelete = function(){
+            const item = vnContentContextItem;
+            window.vnContentHideContextMenu();
+            if (!item) return;
+            const rowType = (item.dataset.itemType || '') === 'group' ? 'group' : 'link';
+            window.vnContentDeleteItem(rowType, item.dataset.itemId || '', item.dataset.title || 'item');
+          };
+
+          window.vnBindContentProperties = function(root){
+            const scope = root || document;
+            scope.querySelectorAll('.content-reorder-item').forEach((item) => {
+              if (item.dataset.propsBound === '1') return;
+              item.dataset.propsBound = '1';
+              item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.vnContentShowContextMenu(e, item, item.dataset.groupId || '');
+              });
+            });
+            const grid = scope.matches && scope.matches('.links-desktop-grid') ? scope : scope.querySelector?.('.links-desktop-grid');
+            if (grid && grid.dataset.contextBound !== '1'){
+              grid.dataset.contextBound = '1';
+              grid.addEventListener('contextmenu', (e) => {
+                if (e.target && e.target.closest && e.target.closest('.content-reorder-item')) return;
+                window.vnContentShowContextMenu(e, null, grid.dataset.groupId || '');
+              });
+            }
+          };
+
+          document.addEventListener('click', window.vnContentHideContextMenu, true);
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.vnContentHideContextMenu();
+          });
+
+          document.getElementById('vnContentLockToggle')?.addEventListener('click', window.vnToggleContentLock);
+          window.vnMakeContentReorder(document.getElementById('vnContentGrid'));
+          window.vnBindContentProperties(document);
+          window.vnApplyContentLockState();
+        })();
+      </script>
+
+      <div id="vnContentContextMenu" class="vn-content-context-menu" hidden role="menu" aria-label="Content actions"
+           style="position:fixed; z-index:2147483647; min-width:150px; padding:6px; border-radius:8px; border:1px solid rgba(255,255,255,.18); background:rgba(20,20,24,.98); box-shadow:0 16px 44px rgba(0,0,0,.45);">
+        <button type="button" role="menuitem" onclick="vnContentContextAdd()" style="display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer;">Add item</button>
+        <button type="button" role="menuitem" data-item-action onclick="vnContentContextEdit()" style="display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer;">Edit</button>
+        <button type="button" role="menuitem" data-item-action onclick="vnContentContextDelete()" style="display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; color:var(--danger,#ff6b6b); cursor:pointer;">Delete</button>
+      </div>
+
+      <div id="vnContentEditBackdrop" class="vn-modal-backdrop hidden" onclick="vnContentCloseEditModal(event)">
+        <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+          <div class="vn-modal-header">
+            <div class="vn-modal-title" id="vnContentEditModalTitle">Edit item</div>
+            <button class="vn-modal-close" type="button" onclick="vnContentCloseEditModal()">&times;</button>
+          </div>
+          <div class="vn-modal-body" style="padding:14px 14px 10px;">
+            <form id="vnContentEditForm" method="post" action="{{ url_for('content_item_save') }}" enctype="multipart/form-data" style="margin:0;" onsubmit="return vnContentPrepareEditSubmit()">
+              {{ csrf_field() }}
+              <input type="hidden" name="mode" id="vnContentEditMode" value="edit">
+              <input type="hidden" name="id" id="vnContentEditId" value="">
+              <input type="hidden" name="row_type" id="vnContentEditRowType" value="link">
+              <input type="hidden" name="order_num" id="vnContentEditOrderNum" value="">
+              <input type="hidden" name="return_to" id="vnContentEditReturnTo" value="">
+              <input type="hidden" id="vnContentEditTotalItems" value="0">
+              <input type="hidden" id="vnContentEditOriginalPage" value="1">
+
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Type</div>
+                  <select class="input" id="vnContentEditTypeDisplay" onchange="vnContentEditApplyType()" disabled>
+                    <option value="link">Link</option>
+                    <option value="group">Group</option>
+                    <option value="file">File</option>
+                    <option value="ha">Home Assistant</option>
+                    <option value="app">App</option>
+                  </select>
+                </div>
+                <div class="vn-two-col" style="gap:10px;">
+                  <div>
+                    <div class="label">Page</div>
+                    <select class="input" id="vnContentEditPage" onchange="vnContentEditUpdatePositions()"></select>
+                  </div>
+                  <div>
+                    <div class="label">Position on page</div>
+                    <select class="input" id="vnContentEditPosition"></select>
+                  </div>
+                </div>
+              </div>
+
+              <div style="height:10px;"></div>
+              <div>
+                <div class="label">Title</div>
+                <input class="input" name="title" id="vnContentEditTitle" placeholder="Title" style="width:100%;">
+              </div>
+
+              <div id="vnContentLinkFields" style="margin-top:10px;">
+                <div>
+                  <div class="label">URL</div>
+                  <input class="input" name="url" id="vnContentUrl" placeholder="https://example.com" style="width:100%;">
+                </div>
+                <div style="height:10px;"></div>
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Group</div>
+                    <select class="input" name="group_id" id="vnContentGroupId">
+                      <option value="">Ungrouped</option>
+                      {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <div class="label">Target</div>
+                    <select class="input" name="target" id="vnContentTarget">
+                      <option value="_blank">New tab</option>
+                      <option value="_self">Same window</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="height:10px;"></div>
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Icon</div>
+                    <select class="input" name="icon_action" id="vnContentIconAction" onchange="vnContentEditApplyIconAction()">
+                      <option value="keep">Keep current</option>
+                      <option value="library">Existing icon</option>
+                      <option value="grab">Grab favicon</option>
+                      <option value="upload">Upload</option>
+                      <option value="clear">Clear</option>
+                    </select>
+                  </div>
+                  <label class="check" style="display:flex; align-items:end; gap:10px; user-select:none;">
+                    <input type="checkbox" name="embed" id="vnContentEmbed" value="1">
+                    <span>Embed YouTube video</span>
+                  </label>
+                </div>
+                <div id="vnContentIconUploadWrap" style="margin-top:10px; display:none;">
+                  <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnContentIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                </div>
+                <div id="vnContentIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                  <input type="hidden" name="icon_choice" id="vnContentIconChoice" value="">
+                  <div class="help">Choose an uploaded icon.</div>
+                  <div class="vn-icon-picker vn-content-icon-picker" data-target="vnContentIconChoice">
+                    {% for icon in icon_library or [] %}
+                      <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnContentChooseIcon(event, 'vnContentIconChoice', this.dataset.icon)">
+                        <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                      </button>
+                    {% endfor %}
+                    {% if not icon_library %}
+                      <div class="muted">No uploaded icons yet.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div id="vnContentFileFields" class="hidden" style="margin-top:10px;">
+                <div>
+                  <div class="label">Replace file</div>
+                  <input class="input" type="file" name="file_file" id="vnContentFileFile" style="width:100%;" multiple>
+                  <div class="help">Leave empty to keep the current file.</div>
+                </div>
+                <div style="height:10px;"></div>
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Group</div>
+                    <select class="input" name="group_id" id="vnContentFileGroupId">
+                      <option value="">Ungrouped</option>
+                      {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <div class="label">Icon</div>
+                    <select class="input" name="icon_action" id="vnContentFileIconAction" onchange="vnContentEditApplyIconAction()">
+                      <option value="keep">Keep current</option>
+                      <option value="library">Existing icon</option>
+                      <option value="upload">Upload</option>
+                      <option value="clear">Clear</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="vnContentFileIconUploadWrap" style="margin-top:10px; display:none;">
+                  <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnContentFileIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                </div>
+                <div id="vnContentFileIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                  <input type="hidden" name="icon_choice" id="vnContentFileIconChoice" value="">
+                  <div class="help">Choose an uploaded icon.</div>
+                  <div class="vn-icon-picker vn-content-icon-picker" data-target="vnContentFileIconChoice">
+                    {% for icon in icon_library or [] %}
+                      <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnContentChooseIcon(event, 'vnContentFileIconChoice', this.dataset.icon)">
+                        <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                      </button>
+                    {% endfor %}
+                    {% if not icon_library %}
+                      <div class="muted">No uploaded icons yet.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div id="vnContentHaFields" class="hidden" style="margin-top:10px;">
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Action type</div>
+                    <select class="input" name="ha_entity_type" id="vnContentHaEntityType" onchange="vnContentHaApplyType()">
+                      <option value="scene">Scene</option>
+                      <option value="script">Script</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="label">Group</div>
+                    <select class="input" name="group_id" id="vnContentHaGroupId">
+                      <option value="">Ungrouped</option>
+                      {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div style="height:10px;"></div>
+                <div>
+                  <div class="label">Entity</div>
+                  <div style="display:flex; gap:10px; align-items:center;">
+                    <input class="input" name="ha_entity_id" id="vnContentHaEntityId" placeholder="scene.movie_night" style="width:100%;">
+                    <button class="btn" type="button" onclick="vnContentHaLoadEntities()">Load</button>
+                  </div>
+                  <div class="help" id="vnContentHaPickerStatus" style="margin-top:6px;">Load scenes/scripts from Home Assistant after saving URL and token in Settings.</div>
+                  <select class="input" id="vnContentHaEntityPicker" style="margin-top:10px; width:100%; display:none;" onchange="vnContentHaChooseSelectedEntity()">
+                    <option value="">Choose an entity...</option>
+                  </select>
+                </div>
+                <div style="height:10px;"></div>
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnContentHaIconAction" onchange="vnContentEditApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+                <div id="vnContentHaIconUploadWrap" style="margin-top:10px; display:none;">
+                  <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnContentHaIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                </div>
+                <div id="vnContentHaIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                  <input type="hidden" name="icon_choice" id="vnContentHaIconChoice" value="">
+                  <div class="help">Choose an uploaded icon.</div>
+                  <div class="vn-icon-picker vn-content-icon-picker" data-target="vnContentHaIconChoice">
+                    {% for icon in icon_library or [] %}
+                      <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnContentChooseIcon(event, 'vnContentHaIconChoice', this.dataset.icon)">
+                        <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                      </button>
+                    {% endfor %}
+                    {% if not icon_library %}
+                      <div class="muted">No uploaded icons yet.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div id="vnContentGroupFields" class="hidden" style="margin-top:10px;">
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnContentGroupIconAction" onchange="vnContentEditApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+                <div id="vnContentGroupIconUploadWrap" style="margin-top:10px; display:none;">
+                  <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnContentGroupIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                </div>
+                <div id="vnContentGroupIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                  <input type="hidden" name="icon_choice" id="vnContentGroupIconChoice" value="">
+                  <div class="help">Choose an uploaded icon.</div>
+                  <div class="vn-icon-picker vn-content-icon-picker" data-target="vnContentGroupIconChoice">
+                    {% for icon in icon_library or [] %}
+                      <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnContentChooseIcon(event, 'vnContentGroupIconChoice', this.dataset.icon)">
+                        <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                      </button>
+                    {% endfor %}
+                    {% if not icon_library %}
+                      <div class="muted">No uploaded icons yet.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div id="vnContentAppFields" class="hidden" style="margin-top:10px;">
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">App</div>
+                    <select class="input" name="app_id" id="vnContentAppId">
+                      <optgroup label="Games">
+                        <option value="tetris">Falling Blocks</option>
+                        <option value="jewels">Jewel Match</option>
+                        <option value="memory">Memory Match</option>
+                        <option value="minesweeper">Minesweeper</option>
+                        <option value="breakout">Breakout</option>
+                        <option value="simon">Sequence Recall</option>
+                      </optgroup>
+                      <optgroup label="Apps">
+                        <option value="sticky">Sticky Notes</option>
+                        <option value="ambient">Ambient Focus</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="label">Group</div>
+                    <select class="input" name="group_id" id="vnContentAppGroupId">
+                      <option value="">Ungrouped</option>
+                      {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="help" style="margin-top:8px;">Built-in apps run locally inside Vortnotes.</div>
+              </div>
+            </form>
+
+            <div class="vn-modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding-top:12px;">
+              <button class="btn danger" id="vnContentEditDeleteBtn" type="button" onclick="vnDeleteContentProps()">Delete</button>
+              <div style="flex:1;"></div>
+              <button class="btn" type="button" onclick="vnContentCloseEditModal()">Cancel</button>
+              <button class="btn primary" type="submit" form="vnContentEditForm">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="vnContentPropsBackdrop" class="vn-modal-backdrop hidden" onclick="vnCloseContentProps(event)">
+        <div class="vn-modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+          <div class="vn-modal-header">
+            <div class="vn-modal-title">Edit item</div>
+            <button class="vn-modal-close" type="button" onclick="vnCloseContentProps()">&times;</button>
+          </div>
+          <div class="vn-modal-body">
+            <input type="hidden" id="vnPropsType" value="">
+            <input type="hidden" id="vnPropsId" value="">
+            <input type="hidden" id="vnPropsGroupId" value="">
+            <input type="hidden" id="vnPropsKind" value="">
+            <input type="hidden" id="vnPropsTotalItems" value="0">
+            <input type="hidden" id="vnPropsOriginalPage" value="1">
+
+            <div class="label">Title</div>
+            <input class="input" id="vnPropsTitle" style="width:100%;">
+
+            <div id="vnPropsUrlWrap" style="margin-top:10px;">
+              <div class="label">URL</div>
+              <input class="input" id="vnPropsUrl" style="width:100%;">
+            </div>
+
+            <div id="vnPropsTargetWrap" style="margin-top:10px;">
+              <div class="label">Target</div>
+              <select class="input" id="vnPropsTarget">
+                <option value="_blank">New tab</option>
+                <option value="_self">Same window</option>
+              </select>
+            </div>
+
+            <div class="vn-two-col" style="margin-top:10px;">
+              <div>
+                <div class="label">Page</div>
+                <select class="input" id="vnPropsPage" onchange="if(window.vnUpdatePropsPositions){ window.vnUpdatePropsPositions(); }"></select>
+              </div>
+              <div>
+                <div class="label">Position on page</div>
+                <select class="input" id="vnPropsPosition"></select>
+              </div>
+            </div>
+          </div>
+          <div class="vn-modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding:0 14px 14px;">
+            <button class="btn danger" type="button" onclick="vnDeleteContentProps()">Delete</button>
+            <div style="flex:1;"></div>
+            <button class="btn" type="button" onclick="vnCloseContentProps()">Cancel</button>
+            <button class="btn primary" type="button" onclick="vnSaveContentProps()">Save</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Group modal -->
+    <div id="vnGroupModalBackdrop" class="vn-modal-backdrop hidden" onclick="vnCloseGroupModal(event)">
+      <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div id="vnGroupModalTitle" class="vn-modal-title">Group</div>
+          <button class="vn-modal-close" type="button" onclick="vnCloseGroupModal()">×</button>
+        </div>
+        <div class="vn-modal-body" style="padding: 12px 12px 16px;">
+          <div id="vnGroupModalBody"></div>
+          <div id="vnGroupPager" style="display:none; margin-top:12px; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- YouTube embed modal -->
+    <div id="vnYTModalBackdrop" class="vn-modal-backdrop hidden" onclick="vnCloseYouTubeModal(event)">
+      <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div class="vn-modal-title">YouTube</div>
+          <button class="vn-modal-close" type="button" onclick="vnCloseYouTubeModal()">×</button>
+        </div>
+        <div class="vn-modal-body" style="padding:12px;">
+          <div class="vn-video-frame">
+            <iframe id="vnYTFrame" src="" title="YouTube video" frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Content media viewer modal (images/videos) -->
+    <div id="contentViewBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="contentViewTitle" onclick="vnCloseContentMedia(event)">
+      <div id="contentViewModal" class="vn-modal vn-media-modal" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div id="contentViewTitle" class="vn-modal-title">Media</div>
+<button type="button" class="vn-modal-close" id="contentViewCloseBtn" aria-label="Close" onclick="vnCloseContentMedia()">×</button>
+        </div>
+        <div class="vn-modal-body">
+          <div id="contentViewBody" class="vn-media-view"></div>
+        </div>
+      </div>
+    </div>
+
+</div>
+
+    <script>
+      (function(){
+        // Ensure modals are not clipped by .card or any transformed/overflow ancestors.
+        // We "portal" the backdrops to <body> so position:fixed truly overlays the page.
+        function vnPortalToBody(id){
+          try{
+            const el = document.getElementById(id);
+            if (!el) return;
+            // If it's already under <body>, do nothing.
+            if (el.parentElement === document.body) return;
+            document.body.appendChild(el);
+          }catch(e){}
+        }
+
+        // Move both modals (group + YouTube) to body on load.
+        if (document.readyState === 'loading'){
+          document.addEventListener('DOMContentLoaded', function(){
+            vnPortalToBody('vnGroupModalBackdrop');
+            vnPortalToBody('vnYTModalBackdrop');
+            vnPortalToBody('contentViewBackdrop');
+          });
+        } else {
+          vnPortalToBody('vnGroupModalBackdrop');
+          vnPortalToBody('vnYTModalBackdrop');
+          vnPortalToBody('contentViewBackdrop');
+        }
+
+        function getYouTubeId(u){
+          try{
+            u = (u || '').trim();
+            if (!u) return '';
+            if (!/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(u)) u = 'https://' + u;
+            const url = new URL(u);
+            const host = (url.hostname || '').toLowerCase();
+            if (host.includes('youtu.be')){
+              const id = url.pathname.replace(/^\//,'').split('/')[0];
+              return id || '';
+            }
+            if (host.includes('youtube.com') || host.includes('m.youtube.com')){
+              if (url.pathname.startsWith('/watch')) return url.searchParams.get('v') || '';
+              const parts = url.pathname.split('/').filter(Boolean);
+              if (parts[0] === 'shorts' && parts[1]) return parts[1];
+              if (parts[0] === 'embed' && parts[1]) return parts[1];
+            }
+          }catch(e){}
+          return '';
+        }
+
+        window.vnOpenYouTubeModal = function(url){
+          const id = getYouTubeId(url);
+          if (!id){
+            // fallback: open normally
+            try{ window.open(url, '_blank', 'noopener'); }catch(e){}
+            return;
+          }
+          const back = document.getElementById('vnYTModalBackdrop');
+          const frame = document.getElementById('vnYTFrame');
+          if (!back || !frame) return;
+          frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(id) + '?autoplay=1';
+          back.classList.remove('hidden');
+          try{ back.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+        };
+
+        window.vnCloseYouTubeModal = function(ev){
+          try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+          const back = document.getElementById('vnYTModalBackdrop');
+          const frame = document.getElementById('vnYTFrame');
+          if (back) back.classList.add('hidden');
+          if (frame) frame.src = '';
+        };
+
+        function fitVideoModal(video, modal, body){
+          if (!video || !modal || !body) return;
+          function applyFit(){
+            const vw = video.videoWidth || 9;
+            const vh = video.videoHeight || 16;
+            const aspect = Math.max(0.05, vw / vh);
+            const maxW = Math.min(window.innerWidth * 0.92, 1100);
+            const maxH = Math.max(180, window.innerHeight * 0.92 - 72);
+            let w = maxW;
+            let h = w / aspect;
+            if (h > maxH){
+              h = maxH;
+              w = h * aspect;
+            }
+            modal.style.setProperty('--vn-media-w', Math.round(w) + 'px');
+          }
+          video.addEventListener('loadedmetadata', applyFit, { once: true });
+          window.addEventListener('resize', applyFit, { passive: true });
+          if (video.readyState >= 1) applyFit();
+          applyFit();
+        }
+
+        window.vnOpenContentMedia = function(url, mime, title){
+          const bd = document.getElementById('contentViewBackdrop');
+          const body = document.getElementById('contentViewBody');
+          const tt = document.getElementById('contentViewTitle');
+          const modal = document.getElementById('contentViewModal');
+if (!bd || !body) return false;
+          mime = ((mime || '') + '').toLowerCase();
+          const t = title || 'Media';
+          if (tt) tt.textContent = t;
+          if (modal) modal.className = 'vn-modal vn-media-modal';
+body.innerHTML = '';
+
+          if (mime.startsWith('image/')){
+            if (modal) modal.classList.add('vn-media-image');
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = t;
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            img.style.margin = '0 auto';
+            body.appendChild(img);
+                    } else if (mime.startsWith('video/')){
+            if (modal) modal.classList.add('vn-media-video');
+            const v = document.createElement('video');
+            v.controls = true;
+            v.src = url;
+            v.autoplay = true;
+            v.playsInline = true;
+            body.appendChild(v);
+            fitVideoModal(v, modal, body);
+                    } else if (mime.startsWith('audio/')){
+            if (modal) modal.classList.add('vn-media-audio');
+            const a = document.createElement('audio');
+            a.controls = true;
+            a.src = url;
+            a.autoplay = true;
+            a.style.width = '100%';
+            a.style.maxWidth = '100%';
+            body.appendChild(a);
+          } else {
+            if (modal) modal.classList.add('vn-media-file');
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = 'Open file';
+            body.appendChild(a);
+          }
+          bd.classList.remove('hidden');
+          try{ bd.querySelector('video, audio')?.play?.(); }catch(e){}
+          return false;
+        };
+
+        window.vnCloseContentMedia = function(ev){
+          if (ev){
+            try{ if (ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+          }
+          const bd = document.getElementById('contentViewBackdrop');
+          const body = document.getElementById('contentViewBody');
+          if (bd) bd.classList.add('hidden');
+          if (body) body.innerHTML = '';
+        };
+
+
+        const bd = () => document.getElementById('vnGroupModalBackdrop');
+        const body = () => document.getElementById('vnGroupModalBody');
+        const title = () => document.getElementById('vnGroupModalTitle');
+        const pager = () => document.getElementById('vnGroupPager');
+
+        let currentGid = null;
+        let currentPage = 1;
+        let totalPages = 1;
+        const canReorderContent = {{ 'true' if can_edit else 'false' }};
+
+        function renderItems(payload){
+          const b = body();
+          if (!b) return;
+          const items = payload.items || [];
+          const grid = document.createElement('div');
+          grid.className = 'links-desktop-grid vn-grid-8';
+          grid.dataset.groupId = String(currentGid || '');
+          grid.dataset.page = String(payload.page || 1);
+          grid.dataset.pageSize = '32';
+
+          for (const it of items){
+            const tile = document.createElement('div');
+            const kind = (it.item_kind || 'link');
+            tile.className = canReorderContent ? 'link-tile content-reorder-item' : 'link-tile';
+            tile.dataset.itemType = 'link';
+            tile.dataset.itemId = String(it.id || '');
+            tile.dataset.groupId = String(currentGid || '');
+            tile.dataset.title = it.title || '';
+            tile.dataset.url = it.url || '';
+            tile.dataset.target = it.target || '_blank';
+            tile.dataset.kind = kind;
+            tile.dataset.embed = String(it.embed || 0);
+            tile.dataset.haEntityId = it.ha_entity_id || '';
+            tile.dataset.haEntityType = it.ha_entity_type || '';
+            tile.dataset.page = String(payload.page || 1);
+            tile.dataset.position = String(Number(it.order_num || 0) % 32);
+            tile.dataset.totalPages = String(payload.total_pages || 1);
+            tile.dataset.totalItems = String(payload.total_count || items.length || 0);
+            if (canReorderContent) tile.draggable = true;
+            const ytId = (it.embed ? getYouTubeId(it.url) : '');
+            const fm = ((it.file_mime || '') + '').toLowerCase();
+            const fileUrl = (kind === 'file')
+              ? (((it.url || '') + '').startsWith('/') ? it.url : ('{{ upload_prefix }}/' + (it.url || '')))
+              : '';
+            let a;
+
+            if (kind === 'app'){
+              a = document.createElement('div');
+              a.className = 'attach-link';
+              a.setAttribute('role','button');
+              a.setAttribute('tabindex','0');
+              a.title = 'Open ' + (it.title || 'app');
+              a.onclick = () => { window.location.href = '/content/apps/' + encodeURIComponent(it.url || ''); };
+              a.onkeypress = (e) => { if (e.key === 'Enter') a.onclick(); };
+            } else if (kind === 'ha'){
+              a = document.createElement('div');
+              a.className = 'attach-link';
+              a.setAttribute('role','button');
+              a.setAttribute('tabindex','0');
+              a.title = it.title || 'Home Assistant action';
+              a.onclick = () => window.vnActivateHaItem(it.id, it.title || '');
+              a.onkeypress = (e) => { if (e.key === 'Enter') window.vnActivateHaItem(it.id, it.title || ''); };
+            } else if (kind === 'file'){
+              const titleTxt = it.file_original_name || it.title || 'File';
+              if (fm.startsWith('image/') || fm.startsWith('video/') || fm.startsWith('audio/')){
+                a = document.createElement('div');
+                a.className = 'attach-link';
+                a.setAttribute('role','button');
+                a.setAttribute('tabindex','0');
+                a.title = titleTxt;
+                a.onclick = () => window.vnOpenContentMedia(fileUrl, fm, titleTxt);
+                a.onkeypress = (e) => { if (e.key === 'Enter') window.vnOpenContentMedia(fileUrl, fm, titleTxt); };
+              } else {
+                a = document.createElement('a');
+                a.className = 'attach-link';
+                a.href = fileUrl;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.title = titleTxt;
+              }
+            } else if (it.embed && ytId){
+              a = document.createElement('div');
+              a.className = 'attach-link';
+              a.setAttribute('role','button');
+              a.setAttribute('tabindex','0');
+              a.title = it.url;
+              a.onclick = () => window.vnOpenYouTubeModal(it.url);
+              a.onkeypress = (e) => { if (e.key === 'Enter') window.vnOpenYouTubeModal(it.url); };
+            } else {
+              a = document.createElement('a');
+              a.className = 'attach-link';
+              a.href = it.url;
+              a.target = it.target || '_blank';
+              a.rel = 'noopener';
+              a.title = it.url;
+            }
+
+            const thumb = document.createElement('div');
+            thumb.className = 'attach-thumb link-thumb';
+            if (it.icon){
+              const img = document.createElement('img');
+              img.src = '{{ upload_prefix }}/' + it.icon;
+              img.alt = it.title;
+              thumb.appendChild(img);
+            } else {
+              const fallback = document.createElement('div');
+              fallback.className = 'attach-fileicon';
+              if (kind === 'app'){
+                fallback.textContent = it.url === 'sticky' ? '🗒️' : (it.url === 'ambient' ? '🎧' : '🎮');
+                thumb.appendChild(fallback);
+              } else if (kind === 'ha'){
+                fallback.textContent = 'HA';
+                thumb.appendChild(fallback);
+              } else if (kind === 'file'){
+                if (fm.startsWith('image/')){
+                  const im = document.createElement('img');
+                  im.src = fileUrl;
+                  im.alt = it.title || '';
+                  thumb.appendChild(im);
+                } else {
+                  fallback.textContent = fm.startsWith('video/') ? '▶' : (fm.startsWith('audio/') ? '🎵' : '📎');
+                  thumb.appendChild(fallback);
+                }
+              } else {
+                fallback.textContent = '🔗';
+                thumb.appendChild(fallback);
+              }
+            }
+
+            const name = document.createElement('div');
+            name.className = 'attach-name';
+            name.textContent = it.title;
+
+            a.appendChild(thumb);
+            a.appendChild(name);
+            tile.appendChild(a);
+            grid.appendChild(tile);
+          }
+
+          b.innerHTML = '';
+          b.appendChild(grid);
+          if (canReorderContent && window.vnMakeContentReorder){
+            window.vnMakeContentReorder(grid, {
+              groupId: String(currentGid || ''),
+              page: payload.page || 1,
+              pageSize: 32
+            });
+            if (window.vnBindContentProperties) window.vnBindContentProperties(grid);
+            if (window.vnApplyContentLockState) window.vnApplyContentLockState();
+          }
+
+          // pager
+          const p = pager();
+          if (!p) return;
+          totalPages = payload.total_pages || 1;
+          currentPage = payload.page || 1;
+          if (totalPages <= 1){
+            p.style.display = 'none';
+            p.innerHTML = '';
+            return;
+          }
+          p.style.display = 'flex';
+          p.innerHTML = '';
+          const prev = document.createElement('button');
+          prev.className = 'btn';
+          prev.type = 'button';
+          prev.textContent = 'Prev';
+          prev.disabled = currentPage <= 1;
+          prev.onclick = () => loadPage(currentPage - 1);
+
+          const label = document.createElement('div');
+          label.className = 'muted';
+          label.textContent = 'Page ' + currentPage + ' / ' + totalPages;
+
+          const next = document.createElement('button');
+          next.className = 'btn';
+          next.type = 'button';
+          next.textContent = 'Next';
+          next.disabled = currentPage >= totalPages;
+          next.onclick = () => loadPage(currentPage + 1);
+
+          p.appendChild(prev);
+          p.appendChild(label);
+          p.appendChild(next);
+        }
+
+        async function loadPage(p){
+          if (!currentGid) return;
+          let resp;
+          try{
+            resp = await fetch(`/content/group/${currentGid}/items?page=${p}`, {headers: {'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+          }catch(e){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">Failed to load group.</div>';
+            return;
+          }
+          if (!resp.ok){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">Failed to load group (HTTP ' + resp.status + ').</div>';
+            return;
+          }
+          let data;
+          try{ data = await resp.json(); }catch(e){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">Failed to load group (not JSON).</div>';
+            return;
+          }
+          if (!data.ok){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">'+(data.error||'Failed to load')+'</div>';
+            return;
+          }
+          if (title()) title().textContent = data.group?.name || 'Group';
+          renderItems(data);
+        }
+
+        window.vnRefreshOpenGroup = function(page){
+          if (!currentGid) return;
+          loadPage(page || currentPage || 1);
+        };
+
+        window.vnOpenGroupModal = function(gid){
+          currentGid = String(gid || '');
+          const backdrop = bd();
+          // Ensure modal is not clipped by parent containers
+          try{ if (backdrop && backdrop.parentElement !== document.body) document.body.appendChild(backdrop); }catch(e){}
+          if (backdrop) backdrop.classList.remove('hidden');
+          if (title()) title().textContent = 'Group';
+          if (body()) body().innerHTML = '<div class="muted" style="padding:8px;">Loading…</div>';
+          loadPage(1);
+          try{ backdrop.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+        };
+
+        window.vnCloseGroupModal = function(ev){
+          try{ if (ev && ev.currentTarget && ev.target !== ev.currentTarget) return; }catch(e){}
+          if (window.vnContentRootNeedsRefresh){
+            window.vnContentRootNeedsRefresh = false;
+            window.location.reload();
+            return;
+          }
+          const backdrop = bd();
+          if (backdrop) backdrop.classList.add('hidden');
+          currentGid = null;
+          currentPage = 1;
+          totalPages = 1;
+          if (body()) body().innerHTML = '';
+          if (pager()) pager().innerHTML = '';
+        };
+
+        document.addEventListener('keydown', (e)=>{
+          if (e.key === 'Escape'){
+            const backdrop = bd();
+            if (backdrop && !backdrop.classList.contains('hidden')) window.vnCloseGroupModal();
+          }
+        });
+      })();
+
+  window.vnActivateHaItem = async function(id, title){
+    try{
+      const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+      const resp = await fetch('{{ url_for("content_ha_activate") }}', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': token
+        },
+        body: JSON.stringify({id: id})
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Home Assistant action failed.');
+      if (window.vnShowToast) window.vnShowToast('Activated ' + (title || data.title || data.entity_id || 'Home Assistant action'));
+    }catch(err){
+      alert(err && err.message ? err.message : 'Home Assistant action failed.');
+    }
+  };
+    
+  window.vnOpenUrl = function(url, target){
+    try{
+      if (!url) return;
+      const t = (target || '_blank').trim() || '_blank';
+      if (t === '_self'){
+        window.location.href = url;
+      } else {
+        window.open(url, t, 'noopener');
+      }
+    }catch(e){
+      try{ window.location.href = url; }catch(_){}
+    }
+  };
+
+</script>
+  {% endif %}
+
+
+<script>
+// --- Content page common modal + open helpers (loaded in view + edit mode) ---
+(function(){
+  document.addEventListener('click', function(e){
+    const tile = e.target && e.target.closest ? e.target.closest('.link-tile') : null;
+    if (!tile) return;
+    tile.classList.remove('content-clicked');
+    void tile.offsetWidth;
+    tile.classList.add('content-clicked');
+    setTimeout(() => {
+      try{ tile.classList.remove('content-clicked'); }catch(_){}
+    }, 420);
+  }, true);
+
+  // Helper: safe open url
+  window.vnOpenUrl = window.vnOpenUrl || function(url, target){
+    try{
+      if (!url) return;
+      const t = (target || '_blank').trim() || '_blank';
+      if (t === '_self') window.location.href = url;
+      else window.open(url, t, 'noopener');
+    }catch(e){
+      try{ window.location.href = url; }catch(_){}
+    }
+  };
+
+  // Ensure a modal backdrop is attached to <body> so it can't be clipped by transformed/overflow parents (e.g., .card)
+  function portalToBody(el){
+    try{
+      if (el && el.parentElement !== document.body) document.body.appendChild(el);
+    }catch(e){}
+  }
+
+  // --- YouTube embed modal ---
+  function getYouTubeId(u){
+    try{
+      const url = new URL(String(u||''));
+      const host = (url.hostname||'').replace(/^www\./,'');
+      if (host === 'youtu.be') return (url.pathname||'').replace('/','').split('/')[0] || '';
+      if (host.endsWith('youtube.com')){
+        if ((url.pathname||'') === '/watch') return url.searchParams.get('v') || '';
+        const parts = (url.pathname||'').split('/').filter(Boolean);
+        if (parts[0] === 'shorts' && parts[1]) return parts[1];
+        if (parts[0] === 'embed' && parts[1]) return parts[1];
+      }
+    }catch(e){}
+    return '';
+  }
+
+  window.vnOpenYouTubeModal = window.vnOpenYouTubeModal || function(url){
+    const id = getYouTubeId(url);
+    if (!id){ return window.vnOpenUrl(url, '_blank'); }
+    const back = document.getElementById('vnYTModalBackdrop');
+    const frame = document.getElementById('vnYTFrame');
+    if (!back || !frame) return;
+    portalToBody(back);
+    frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(id) + '?autoplay=1';
+    back.classList.remove('hidden');
+    try{ back.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+  };
+
+  window.vnCloseYouTubeModal = window.vnCloseYouTubeModal || function(ev){
+    try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+    const back = document.getElementById('vnYTModalBackdrop');
+    const frame = document.getElementById('vnYTFrame');
+    if (back) back.classList.add('hidden');
+    if (frame) frame.src = '';
+  };
+
+  function fitVideoModal(video, modal, body){
+    if (!video || !modal || !body) return;
+    function applyFit(){
+      const vw = video.videoWidth || 9;
+      const vh = video.videoHeight || 16;
+      const aspect = Math.max(0.05, vw / vh);
+      const maxW = Math.min(window.innerWidth * 0.92, 1100);
+      const maxH = Math.max(180, window.innerHeight * 0.92 - 72);
+      let w = maxW;
+      let h = w / aspect;
+      if (h > maxH){
+        h = maxH;
+        w = h * aspect;
+      }
+      modal.style.setProperty('--vn-media-w', Math.round(w) + 'px');
+    }
+    video.addEventListener('loadedmetadata', applyFit, { once: true });
+    window.addEventListener('resize', applyFit, { passive: true });
+    if (video.readyState >= 1) applyFit();
+    applyFit();
+  }
+
+  // --- Content media (image/video file) modal ---
+  window.vnOpenContentMedia = window.vnOpenContentMedia || function(url, mime, title){
+    const bd = document.getElementById('contentViewBackdrop');
+    const body = document.getElementById('contentViewBody');
+    const tt = document.getElementById('contentViewTitle');
+    const modal = document.getElementById('contentViewModal');
+if (!bd || !body) return window.vnOpenUrl(url, '_blank');
+    portalToBody(bd);
+    if (tt) tt.textContent = title || 'Media';
+    if (modal) modal.className = 'vn-modal vn-media-modal';
+const m = String(mime||'').toLowerCase();
+    let html = '';
+    if (m.startsWith('image/')){
+      if (modal) modal.classList.add('vn-media-image');
+      html = `<img src="${url}" alt="" style="max-width:100%; height:auto; display:block; border-radius:12px;">`;
+        } else if (m.startsWith('video/')){
+      if (modal) modal.classList.add('vn-media-video');
+      html = `<video controls autoplay muted playsinline></video>`;
+    } else if (m.startsWith('audio/')){
+      if (modal) modal.classList.add('vn-media-audio');
+      html = `<audio src="${url}" controls autoplay style="width:100%; max-width:100%;"></audio>`;
+    } else {
+
+      return window.vnOpenUrl(url, '_blank');
+    }
+    body.innerHTML = html;
+    if (m.startsWith('video/')){
+      const v = body.querySelector('video');
+      if (v){
+        v.src = url;
+        fitVideoModal(v, modal, body);
+      }
+    }
+    // Attempt to start playback (some browsers require muted autoplay; we set muted by default)
+    try{ bd.querySelector('video, audio')?.play?.(); }catch(e){}
+
+    bd.classList.remove('hidden');
+    try{ bd.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+  };
+
+  window.vnCloseContentMedia = window.vnCloseContentMedia || function(ev){
+    try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+    const bd = document.getElementById('contentViewBackdrop');
+    const body = document.getElementById('contentViewBody');
+    if (bd) bd.classList.add('hidden');
+    if (body) body.innerHTML = '';
+  };
+
+  // --- Group modal with pagination (8-wide grid CSS already in template) ---
+  (function(){
+    const backdrop = document.getElementById('vnGroupModalBackdrop');
+    if (!backdrop) return; // not on this page
+    portalToBody(backdrop);
+
+    let currentGid = null;
+    let currentPage = 1;
+    let totalPages = 1;
+
+    const bd = () => document.getElementById('vnGroupModalBackdrop');
+    const title = () => document.getElementById('vnGroupModalTitle');
+    const body = () => document.getElementById('vnGroupModalBody');
+    const pager = () => document.getElementById('vnGroupPager');
+
+    function renderItems(data){
+      currentPage = data.page || 1;
+      totalPages = data.total_pages || 1;
+      const items = data.items || [];
+      const b = body();
+      if (!b) return;
+
+      if (!items.length){
+        b.innerHTML = '<div class="muted" style="padding:8px;">No items</div>';
+      } else {
+        b.innerHTML = items.map(it => {
+          const safeTitle = (it.title || '').replace(/"/g,'&quot;');
+          const icon = it.icon_url ? `<img src="${it.icon_url}" alt="" draggable="false">` : `<div class="fallback">${(it.title||'?').slice(0,1).toUpperCase()}</div>`;
+          const onclick = it.click_action || '';
+          return `
+            <div class="link-tile" role="button" tabindex="0"
+                 onclick="${onclick}"
+                 onkeypress="if(event.key==='Enter'){ ${onclick} }">
+              <div class="attach-link" draggable="false">
+                <div class="attach-thumb link-thumb">${icon}</div>
+                <div class="attach-meta">
+                  <div class="attach-name" title="${safeTitle}">${safeTitle}</div>
+                </div>
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      const p = pager();
+      if (!p) return;
+      p.innerHTML = '';
+      if (totalPages <= 1) return;
+
+      const prev = document.createElement('button');
+      prev.className = 'btn';
+      prev.type = 'button';
+      prev.textContent = 'Prev';
+      prev.disabled = currentPage <= 1;
+      prev.onclick = () => loadPage(currentPage - 1);
+
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.style.margin = '0 10px';
+      label.textContent = currentPage + ' / ' + totalPages;
+
+      const next = document.createElement('button');
+      next.className = 'btn';
+      next.type = 'button';
+      next.textContent = 'Next';
+      next.disabled = currentPage >= totalPages;
+      next.onclick = () => loadPage(currentPage + 1);
+
+      p.appendChild(prev);
+      p.appendChild(label);
+      p.appendChild(next);
+    }
+
+    async function loadPage(p){
+      if (!currentGid) return;
+      let resp;
+          try{
+            resp = await fetch(`/content/group/${currentGid}/items?page=${p}`, {headers: {'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+          }catch(e){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">Failed to load group.</div>';
+            return;
+          }
+      if (!resp.ok) return;
+      let data;
+          try{ data = await resp.json(); }catch(e){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">Failed to load group (not JSON).</div>';
+            return;
+          }
+      if (!data.ok){
+            const b = body();
+            if (b) b.innerHTML = '<div class="muted" style="padding:8px;">'+(data.error||'Failed to load')+'</div>';
+            return;
+          }
+      if (title()) title().textContent = data.group?.name || 'Group';
+      renderItems(data);
+    }
+
+    window.vnRefreshOpenGroup = window.vnRefreshOpenGroup || function(page){
+      if (!currentGid) return;
+      loadPage(page || currentPage || 1);
+    };
+
+    window.vnOpenGroupModal = window.vnOpenGroupModal || function(gid){
+      currentGid = String(gid || '');
+      const b = bd();
+      portalToBody(b);
+      if (b) b.classList.remove('hidden');
+      if (title()) title().textContent = 'Group';
+      if (body()) body().innerHTML = '<div class="muted" style="padding:8px;">Loading…</div>';
+      loadPage(1);
+      try{ b.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+    };
+
+    window.vnCloseGroupModal = window.vnCloseGroupModal || function(ev){
+      try{ if (ev && ev.currentTarget && ev.target !== ev.currentTarget) return; }catch(e){}
+      if (window.vnContentRootNeedsRefresh){
+        window.vnContentRootNeedsRefresh = false;
+        window.location.reload();
+        return;
+      }
+      const b = bd();
+      if (b) b.classList.add('hidden');
+      currentGid = null;
+      currentPage = 1;
+      totalPages = 1;
+      if (body()) body().innerHTML = '';
+      if (pager()) pager().innerHTML = '';
+    };
+
+    document.addEventListener('keydown', (e)=>{
+      if (e.key === 'Escape'){
+        const b = bd();
+        if (b && !b.classList.contains('hidden')){
+          // close all modals on ESC
+          window.vnCloseGroupModal();
+          window.vnCloseYouTubeModal();
+          window.vnCloseContentMedia();
+        }
+      }
+    });
+  })();
+})();
+</script>
+</div>
+
+{% endblock %}

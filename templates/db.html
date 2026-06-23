@@ -1,0 +1,764 @@
+{% if not embedded_settings %}{% extends "base.html" %}{% endif %}
+{% block content %}
+
+{% if not embedded_settings %}
+<style>
+  /* Lightweight accordion styling for the DB admin page */
+  details.db-accordion > summary {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 0;
+  }
+  details.db-accordion > summary::-webkit-details-marker { display: none; }
+  details.db-accordion > summary .caret {
+    width: 0;
+    height: 0;
+    border-left: 6px solid rgba(255,255,255,0.65);
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    transform: rotate(0deg);
+    transition: transform 120ms ease;
+    margin-left: 2px;
+  }
+  details.db-accordion[open] > summary .caret { transform: rotate(90deg); }
+  .db-accordion-body { padding-top: 10px; }
+  .db-sep { height: 1px; background: rgba(255,255,255,0.08); margin: 18px 0; border: 0; }
+</style>
+{% endif %}
+{% if not embedded_settings %}
+<div class="card" style="text-align:center;">
+  <h2 style="margin: 6px 0 0;">Database Management</h2>
+  <div class="muted" style="margin-top:8px;">
+    Currently selected: <strong>{{ selected_db }}</strong>
+  </div>
+
+  {% if error_msg %}
+    <div class="alert" style="margin-top:12px;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <details class="db-accordion" open>
+    <summary>
+      <span class="caret" aria-hidden="true"></span>
+      <h3 style="margin:0;">Databases &amp; Create DB</h3>
+    </summary>
+    <div class="db-accordion-body">
+
+  <h3 style="margin:0; text-align:center;">Databases</h3>
+
+  {% if dbs|length == 0 %}
+    <div class="muted" style="text-align:center; margin-top:12px;">No databases found.</div>
+  {% else %}
+    <div class="table-wrap" style="margin-top:12px;">
+      <table class="db-table">
+        <thead>
+          <tr>
+            <th style="width:56px;">Use</th>
+            <th>Name</th>
+            <th style="width:130px;">Status</th>
+            <th style="width:150px;">Password</th>
+            <th style="width:190px;">Permissions</th>
+            <th style="width:160px;">Last accessed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for name in dbs %}
+            <tr>
+              <td style="text-align:center;">
+                <input type="radio" name="db_pick" value="{{ name }}" {% if name == default_db %}checked{% endif %}>
+              </td>
+              <td style="font-weight:650;">{{ name }}</td>
+              <td>
+                {% if name == default_db %}
+                  <span class="badge">Default</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if password_set.get(name) %}
+                  <span class="badge">Set</span>
+                {% else %}
+                  <span class="muted">None</span>
+                {% endif %}
+              </td>
+              <td>
+                  <label class="muted" style="display:flex; align-items:center; gap:8px; user-select:none;" title="Allow notes, content, apps, and Home Assistant actions without fully unlocking this database.">
+                    <input type="checkbox" class="perm-read-toggle" data-db-name="{{ name }}" {% if perm_read_map.get(name) %}checked{% endif %}>
+                    Read without password
+                  </label>
+                {% if false %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set la = last_access_map.get(name) %}
+                {% if la %}
+                  <span class="muted">{{ la }}</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex; justify-content:center; margin-top:14px; gap:10px; flex-wrap:wrap;">
+      <div class="seg-group">
+        <button class="btn" type="button" id="btnDefault">Set Default</button>
+        <button class="btn" type="button" id="btnRename">Rename</button>
+        <button class="btn" type="button" id="btnDbPwd">Password</button>
+        <button class="btn" type="button" id="btnDbReset">Reset Password</button>
+        <button class="btn" type="button" id="btnBackup">Backup</button>
+        <button class="btn" type="button" id="btnDownloadPackage">Download DB</button>
+        <button class="btn btn-danger" type="button" id="btnDelete">Delete</button>
+      </div>
+    </div>
+  {% endif %}
+  <hr class="db-sep">
+
+  <h3 style="margin-top:0; text-align:center;">Create DB</h3>
+  <form method="post" action="{{ url_for('db_create') }}" style="max-width:520px; margin: 0 auto;">
+    {{ csrf_field() }}
+    <input class="input" name="name" placeholder="e.g. work_notes.db (or work_notes)" />
+    <div style="display:flex; justify-content:center; margin-top:10px;">
+      <div class="seg-group flat">
+        <button class="btn" type="submit">Create</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="db-sep">
+
+  <h3 style="margin-top:0; text-align:center;">Import DB ZIP</h3>
+  <form method="post" action="{{ url_for('db_import_package') }}" enctype="multipart/form-data" style="max-width:620px; margin: 0 auto;">
+    {{ csrf_field() }}
+    <label class="label" for="dbPackageFile">External database package ZIP</label>
+    <input class="input" id="dbPackageFile" type="file" name="package" accept=".zip,application/zip">
+    <label class="label" for="dbBackupName" style="margin-top:10px;">Or import a saved backup</label>
+    <select class="input" id="dbBackupName" name="backup_name">
+      <option value="">Choose saved backup...</option>
+      {% for backup in backup_entries %}
+        <option value="{{ backup.name }}">{{ backup.name }}{% if backup.size_mb is defined %} ({{ backup.size_mb }} MB){% endif %}</option>
+      {% endfor %}
+    </select>
+    <div class="muted" style="margin-top:6px; text-align:center;">
+      Imports a ZIP created with <strong>Download DB</strong> or <strong>Backup</strong>, including the database file, uploads, and appearance settings.
+    </div>
+    <div style="display:flex; justify-content:center; margin-top:10px;">
+      <div class="seg-group flat">
+        <button class="btn" type="submit" onclick="return confirm('Import this database ZIP as a new database?')">Import ZIP</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="db-sep">
+
+  <h3 style="margin-top:0; text-align:center;">Auto Backups</h3>
+  <form method="post" action="{{ url_for('db_auto_backup_set') }}" style="max-width:620px; margin: 0 auto;">
+    {{ csrf_field() }}
+    <label class="muted" style="display:flex; align-items:center; justify-content:center; gap:8px; user-select:none;">
+      <input type="checkbox" name="enabled" value="1" {% if auto_backup.enabled %}checked{% endif %}>
+      Enable scheduled DB ZIP backups
+    </label>
+    <label class="label" for="autoBackupInterval" style="margin-top:10px;">Run every</label>
+    <div style="display:flex; align-items:center; justify-content:center; gap:10px;">
+      <input class="input" id="autoBackupInterval" type="number" name="interval_hours" min="1" value="{{ auto_backup.interval_hours or 24 }}" style="max-width:120px;">
+      <span class="muted">hours</span>
+    </div>
+    <div class="muted" style="margin-top:6px; text-align:center;">
+      Keeps the last 3 scheduled backups per database. Last run:
+      <strong>{% if auto_backup.last_run_display %}{{ auto_backup.last_run_display }}{% else %}Never{% endif %}</strong>
+    </div>
+    <div style="display:flex; justify-content:center; margin-top:10px; gap:10px; flex-wrap:wrap;">
+      <button class="btn" type="submit">Save Schedule</button>
+      <button class="btn" type="submit" name="run_now" value="1">Run Now</button>
+    </div>
+  </form>
+
+    </div>
+  </details>
+</div>
+
+<form id="formDefault" method="post" action="{{ url_for('db_set_default') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="selName" value="">
+</form>
+
+<form id="formRename" method="post" action="{{ url_for('db_rename') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="old" id="renOld" value="">
+  <input type="hidden" name="new" id="renNew" value="">
+</form>
+
+<form id="formPwd" method="post" action="{{ url_for('db_set_password') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="pwdName" value="">
+  <input type="hidden" name="password" id="pwdVal" value="">
+</form>
+
+<form id="formPwdClear" method="post" action="{{ url_for('db_clear_password') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="pwdClearName" value="">
+</form>
+
+<form id="formBackup" method="post" action="{{ url_for('db_backup') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="bakName" value="">
+</form>
+
+<form id="formDownloadPackage" method="post" action="{{ url_for('db_download_package') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="pkgName" value="">
+</form>
+
+<form id="formDelete" method="post" action="{{ url_for('db_delete') }}" hidden>
+  {{ csrf_field() }}
+  <input type="hidden" name="name" id="delName" value="">
+</form>
+
+<script>
+
+// CSRF token for fetch/AJAX posts on this page.
+const CSRF_TOKEN = "{{ csrf_token() }}";
+function pickedDb(){
+  const r = document.querySelector('input[name="db_pick"]:checked');
+  return r ? r.value : null;
+}
+
+
+document.getElementById('btnDefault')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  document.getElementById('selName').value = name;
+  document.getElementById('formDefault').submit();
+});
+
+document.getElementById('btnRename')?.addEventListener('click', () => {
+  const oldName = pickedDb();
+  if (!oldName) return alert("Select a DB first.");
+  const newName = prompt("Rename DB:\n\nCurrent: " + oldName + "\n\nEnter new name:", oldName);
+  if (newName === null) return;
+  const t = newName.trim();
+  if (!t) return alert("Invalid name.");
+  document.getElementById('renOld').value = oldName;
+  document.getElementById('renNew').value = t;
+  document.getElementById('formRename').submit();
+});
+
+document.getElementById('btnDbPwd')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  const pwd = prompt("Set/Change DB password for '" + name + "':", "");
+  if (pwd === null) return;
+  const t = pwd.trim();
+  if (!t) return alert("Password cannot be empty.");
+  document.getElementById('pwdName').value = name;
+  document.getElementById('pwdVal').value = t;
+  document.getElementById('formPwd').submit();
+});
+
+document.getElementById('btnDbReset')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  if (!confirm("Reset (clear) DB password for '" + name + "'?")) return;
+  document.getElementById('pwdClearName').value = name;
+  document.getElementById('formPwdClear').submit();
+});
+
+document.getElementById('btnBackup')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  if (!confirm("Create and download a restorable ZIP backup of '" + name + "'?")) return;
+  document.getElementById('bakName').value = name;
+  document.getElementById('formBackup').submit();
+});
+
+document.getElementById('btnDownloadPackage')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  document.getElementById('pkgName').value = name;
+  document.getElementById('formDownloadPackage').submit();
+});
+
+document.getElementById('btnDelete')?.addEventListener('click', () => {
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  if (!confirm("Delete DB '" + name + "'? This cannot be undone.")) return;
+  document.getElementById('delName').value = name;
+  document.getElementById('formDelete').submit();
+});
+// Permissions: Read without password toggle
+document.querySelectorAll('.perm-read-toggle').forEach(cb => {
+  cb.addEventListener('change', async () => {
+    const dbName = cb.getAttribute('data-db-name');
+    const enabled = cb.checked ? '1' : '0';
+    try{
+      const body = new URLSearchParams();
+      body.set('db_name', dbName);
+      body.set('enabled', enabled);
+      const res = await fetch("{{ url_for('db_perm_read_set') }}", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-CSRFToken': CSRF_TOKEN,
+          // Hint to the server that this call expects JSON (avoid HTML redirects).
+          'Accept': 'application/json',
+          'X-Requested-With': 'fetch'
+        },
+        body: body.toString(),
+        credentials: 'same-origin'
+      });
+      const data = await res.json().catch(()=>null);
+      if (!res.ok || !data || !data.ok){
+        // If admin auth expired, the server returns a 401 JSON with a login URL.
+        if (data && data.login_url){
+          window.location.href = data.login_url;
+          return;
+        }
+        throw new Error((data && data.error) ? data.error : 'Unable to save setting.');
+      }
+      // keep UI in sync with server response
+      cb.checked = !!data.enabled;
+    }catch(err){
+      cb.checked = !cb.checked; // revert
+      alert(err && err.message ? err.message : 'Unable to save setting.');
+    }
+  });
+});
+</script>
+
+
+<div class="card">
+  <details class="db-accordion">
+    <summary>
+      <span class="caret" aria-hidden="true"></span>
+      <h3 style="margin:0;">Theme / Appearance</h3>
+    </summary>
+    <div class="db-accordion-body">
+  <div class="muted" style="margin:-6px 0 12px;">
+    Set an accent color theme and optional background image that will apply when that database is selected.
+  </div>
+
+  <script>
+  const THEME_MAP = {{ theme_map|tojson }};
+
+  function toggleCustomDisabled(){
+    const presetSel = document.getElementById('themePresetSelect');
+    const a1 = document.getElementById('themeAccent');
+    const a2 = document.getElementById('themeAccent2');
+    if (!presetSel || !a1 || !a2) return;
+    const usingPreset = presetSel.value !== "";
+    a1.disabled = usingPreset;
+    a2.disabled = usingPreset;
+    a1.style.opacity = usingPreset ? "0.6" : "1";
+    a2.style.opacity = usingPreset ? "0.6" : "1";
+  }
+
+  function syncThemeFields(){
+    const dbSel = document.getElementById('themeDbSelect');
+    const presetSel = document.getElementById('themePresetSelect');
+    const a1 = document.getElementById('themeAccent');
+    const a2 = document.getElementById('themeAccent2');
+    const b = document.getElementById('themeBgBrightness');
+    const bVal = document.getElementById('themeBgBrightnessVal');
+    const hov = document.getElementById('themeBtnHoverOutline');
+    if (!dbSel || !presetSel || !a1 || !a2) return;
+    const t = THEME_MAP[dbSel.value] || {};
+
+    // preset vs custom
+    if (t.mode === "custom") {
+      presetSel.value = "";
+    } else {
+      presetSel.value = (t.preset || "default");
+    }
+
+    // populate custom colors for visibility (even if disabled)
+    if (t.accent && t.accent.startsWith("#")) a1.value = t.accent;
+    if (t.accent2 && t.accent2.startsWith("#")) a2.value = t.accent2;
+
+    // background brightness
+    if (b){
+      const v = (typeof t.bg_brightness === 'number') ? t.bg_brightness : 10;
+      b.value = String(v);
+      if (bVal) bVal.textContent = String(v);
+    }
+
+    if (hov){
+      hov.checked = !!t.btn_hover_outline;
+    }
+
+    toggleCustomDisabled();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const dbSel = document.getElementById('themeDbSelect');
+    const presetSel = document.getElementById('themePresetSelect');
+    const b = document.getElementById('themeBgBrightness');
+    const bVal = document.getElementById('themeBgBrightnessVal');
+    dbSel?.addEventListener('change', syncThemeFields);
+    presetSel?.addEventListener('change', toggleCustomDisabled);
+    b?.addEventListener('input', () => {
+      if (bVal) bVal.textContent = String(b.value);
+    });
+    syncThemeFields();
+  });
+  </script>
+
+  <form method="post" action="{{ url_for('db_theme_set') }}" enctype="multipart/form-data">
+    {{ csrf_field() }}
+    <input type="hidden" name="btn_hover_outline" value="0">
+    <div class="row" style="gap:12px; flex-wrap:wrap;">
+      <div style="flex: 1 1 220px; min-width:220px;">
+        <label class="label">Database</label>
+        <select name="db_name" class="input" id="themeDbSelect" required>
+          {% for name in dbs %}
+            <option value="{{ name }}" {% if name == selected_db %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="flex: 1 1 220px; min-width:220px;">
+        <label class="label">Theme preset</label>
+        <select name="preset" class="input" id="themePresetSelect">
+          <option value="">(custom)</option>
+          {% for p in theme_presets %}
+            <option value="{{ p }}">{{ p }}</option>
+          {% endfor %}
+        </select>
+        <div class="muted" style="margin-top:6px;">Choose <strong>default</strong> to use the app's default colors, or pick a preset. Leave preset blank to use custom colors below.</div>
+      </div>
+    </div>
+
+    <div class="row" style="gap:12px; flex-wrap:wrap; margin-top:12px;">
+      <div style="flex: 1 1 200px; min-width:200px;">
+        <label class="label">Accent color (custom)</label>
+        <input class="input" type="color" name="accent" id="themeAccent" value="#7c5cff" style="padding:6px; height:40px;">
+        <div class="muted" style="margin-top:6px;">Used for buttons/links.</div>
+      </div>
+
+      <div style="flex: 1 1 200px; min-width:200px;">
+        <label class="label">Accent2 color (custom)</label>
+        <input class="input" type="color" name="accent2" id="themeAccent2" value="#2dd4bf" style="padding:6px; height:40px;">
+        <div class="muted" style="margin-top:6px;">Used for highlights.</div>
+      </div>
+
+      <div style="flex: 2 1 260px; min-width:260px;">
+        <label class="label">Background image (optional)</label>
+        <input class="input" type="file" name="bg_file" accept=".png,.jpg,.jpeg,.webp,.gif" />
+        <div class="muted" style="margin-top:6px;">PNG/JPG/WEBP/GIF. Uploading a new file replaces the previous background for that DB.</div>
+      </div>
+
+      <div style="flex: 1 1 240px; min-width:240px;">
+        <label class="label">Background brightness: <span id="themeBgBrightnessVal">10</span>%</label>
+        <input class="input" type="range" name="bg_brightness" id="themeBgBrightness" min="0" max="100" value="10" style="padding: 12px 10px; height: 40px;">
+        <div class="muted" style="margin-top:6px;">Higher = brighter background image (less dark overlay). Only applies when a background image is set.</div>
+      </div>
+    </div>
+
+    <div class="row" style="align-items:center; gap:10px; margin-top:12px;">
+      <label class="muted" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" name="clear_bg" value="1">
+        Remove current background image
+      </label>
+    </div>
+
+    <div class="row" style="align-items:center; gap:10px; margin-top:8px;">
+      <label class="muted" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="themeBtnHoverOutline" name="btn_hover_outline" value="1">
+        Button hover outline (crisp accent ring)
+      </label>
+    </div>
+
+    <div class="row" style="gap:10px; margin-top:14px;">
+      <button class="btn" type="submit" >Save appearance</button>
+    </div>
+  </form>
+
+  <div style="margin-top:16px;">
+    <div class="muted" style="margin-bottom:8px;">Current settings:</div>
+    <div class="muted" style="font-size: 13px;">
+      {% for name in dbs %}
+        {% set t = theme_map.get(name, {}) %}
+        <div style="display:flex; gap:10px; align-items:center; margin:6px 0;">
+          <div style="width:14px; height:14px; border-radius:4px; background: {{ t.accent or '#7c5cff' }}; border:1px solid rgba(255,255,255,0.2);"></div>
+          <div style="flex:1;">
+            <strong>{{ name }}</strong>
+            <span class="muted">— accent {{ t.accent or 'default' }}, accent2 {{ t.accent2 or 'default' }}, background {{ 'set' if t.has_bg else 'none' }}{% if t.has_bg %} (brightness {{ t.bg_brightness }}%) {% endif %}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+    </div>
+  </details>
+</div>
+
+
+<div class="card">
+  <details class="db-accordion">
+    <summary>
+      <span class="caret" aria-hidden="true"></span>
+      <h3 style="margin:0;">Config</h3>
+    </summary>
+    <div class="db-accordion-body">
+      <div class="muted" style="margin:-6px 0 12px;">
+        Configure upload limits. <strong>These settings are global</strong> (apply to the whole app) and are <strong>not</strong> database-specific.
+      </div>
+
+      <form method="post" action="{{ url_for('db_config_set') }}">
+        {{ csrf_field() }}
+        <div class="row" style="gap:12px; flex-wrap:wrap;">
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label">Max request size (MB)</label>
+            <input class="input" type="number" name="max_request_mb" min="1" step="1" value="{{ upload_cfg.max_request_mb }}">
+            <div class="muted" style="margin-top:6px;">Caps overall POST size (notes saves, inline uploads, media uploads).</div>
+          </div>
+
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label">Attachment / Media max size (MB)</label>
+            <input class="input" type="number" name="attachment_max_mb" min="0" step="1" value="{{ upload_cfg.attachment_max_mb }}">
+            <div class="muted" style="margin-top:6px;">Max per-file size for note attachments and Media library uploads.</div>
+          </div>
+
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label">Inline editor image upload max (MB)</label>
+            <input class="input" type="number" name="inline_media_max_mb" min="1" step="1" value="{{ upload_cfg.inline_media_max_mb }}">
+            <div class="muted" style="margin-top:6px;">Max size for images uploaded via the editor (paste/upload inline images).</div>
+          </div>
+        </div>
+
+        {% if upload_cfg.env_override %}
+          <div class="muted" style="margin-top:10px;">
+            Note: one or more limits are currently overridden by environment variables (VORTNOTES_*). The UI values show the effective limits.
+          </div>
+        {% endif %}
+
+        <div class="row" style="gap:10px; margin-top:14px;">
+          <button class="btn primary" type="submit">Save upload config</button>
+        </div>
+      </form>
+
+      <hr class="db-sep">
+
+      {% include "https_settings.html" %}
+
+      <hr class="db-sep">
+
+      <details class="db-accordion">
+        <summary>
+          <span class="caret" aria-hidden="true"></span>
+          <h3 style="margin:0;">Admin Access</h3>
+        </summary>
+        <div class="db-accordion-body">
+          <div class="muted" style="text-align:center; margin-top:6px;">
+            This password protects Database Management and configuration tools.
+          </div>
+
+          {% if not admin_password_is_set %}
+            <form method="post" action="{{ url_for('db_admin_set_password') }}" style="max-width:520px; margin: 12px auto 0;">
+              {{ csrf_field() }}
+              <input class="input" type="password" name="password" placeholder="Set admin password" autocomplete="new-password" required>
+              <input class="input" type="password" name="password_confirm" placeholder="Confirm admin password" autocomplete="new-password" required style="margin-top:8px;">
+              <div style="display:flex; justify-content:center; margin-top:10px;">
+                <div class="seg-group flat">
+                  <button class="btn" type="submit">Set Admin Password</button>
+                </div>
+              </div>
+            </form>
+          {% else %}
+            <form method="post" action="{{ url_for('db_admin_set_password') }}" style="max-width:520px; margin: 12px auto 0;">
+              {{ csrf_field() }}
+              <input class="input" type="password" name="password" placeholder="Change admin password" autocomplete="new-password" required>
+              <input class="input" type="password" name="password_confirm" placeholder="Confirm new admin password" autocomplete="new-password" required style="margin-top:8px;">
+              <div style="display:flex; justify-content:center; margin-top:10px; gap:10px; flex-wrap:wrap;">
+                <div class="seg-group flat">
+                  <button class="btn" type="submit">Change Password</button>
+                </div>
+              </div>
+            </form>
+
+            <form method="post" action="{{ url_for('db_admin_logout') }}" style="max-width:520px; margin: 10px auto 0;">
+              {{ csrf_field() }}
+              <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
+                <button class="btn" type="submit">Log out of DB Admin</button>
+              </div>
+            </form>
+          {% endif %}
+        </div>
+      </details>
+
+      <hr class="db-sep">
+
+      <details class="db-accordion">
+        <summary>
+          <span class="caret" aria-hidden="true"></span>
+          <h3 style="margin:0;">Home Assistant</h3>
+        </summary>
+        <div class="db-accordion-body" style="max-width:640px; margin:0 auto;">
+          <form method="post" action="{{ url_for('settings_home_assistant') }}">
+            {{ csrf_field() }}
+
+            <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none; margin-bottom:12px;">
+              <input type="checkbox" name="enabled" value="1" {% if home_assistant and home_assistant.enabled %}checked{% endif %}>
+              <span>Enable local Home Assistant actions</span>
+            </label>
+
+            <label class="label" for="ha_base_url">Local URL</label>
+            <input
+              id="ha_base_url"
+              class="input"
+              type="text"
+              name="base_url"
+              value="{{ home_assistant.base_url if home_assistant else '' }}"
+              placeholder="http://homeassistant.local:8123"
+              style="width:100%;"
+            >
+
+            <div style="height:12px;"></div>
+
+            <label class="label" for="ha_token">Long-lived access token</label>
+            <input
+              id="ha_token"
+              class="input"
+              type="password"
+              name="token"
+              placeholder="{% if home_assistant and home_assistant.has_token %}Token saved; leave blank to keep it{% else %}Paste token{% endif %}"
+              autocomplete="off"
+              style="width:100%;"
+            >
+            <div class="help" style="margin-top:6px;">Only local Home Assistant URLs are allowed. VortNotes stores the token server-side and uses it to list and activate scenes/scripts.</div>
+
+            <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+              <button class="btn primary" type="submit" style="flex:1;">Save Home Assistant</button>
+            </div>
+          </form>
+        </div>
+      </details>
+    </div>
+  </details>
+</div>
+
+<div class="card">
+  <details class="db-accordion">
+    <summary>
+      <span class="caret" aria-hidden="true"></span>
+      <h3 style="margin:0;">Storage</h3>
+    </summary>
+    <div class="db-accordion-body">
+      <div class="muted" style="max-width:720px; margin:0 auto; text-align:center;">
+        Data folder: <strong>{{ storage_stats.disk.path }}</strong>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px; max-width:820px; margin:12px auto 0;">
+        <div style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.04);">
+          <div class="muted">VortNotes files</div>
+          <strong>{{ storage_stats.total_size }}</strong>
+          <div class="muted" style="font-size:12px;">{{ storage_stats.total_files }} files</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.04);">
+          <div class="muted">Disk free</div>
+          <strong>{{ storage_stats.disk.free_gb }} GB</strong>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.04);">
+          <div class="muted">Disk used</div>
+          <strong>{{ storage_stats.disk.used_gb }} GB</strong>
+          <div class="muted" style="font-size:12px;">{{ storage_stats.disk.used_pct }}%</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.04);">
+          <div class="muted">Disk total</div>
+          <strong>{{ storage_stats.disk.total_gb }} GB</strong>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; max-width:820px; margin:12px auto 0;">
+        <div style="border:1px solid rgba(255,255,255,0.10); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.03);">
+          <div class="muted">Databases</div>
+          <strong>{{ storage_stats.db_size }}</strong>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.10); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.03);">
+          <div class="muted">Uploads</div>
+          <strong>{{ storage_stats.uploads_size }}</strong>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.10); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.03);">
+          <div class="muted">Backups</div>
+          <strong>{{ storage_stats.backups_size }}</strong>
+          <div class="muted" style="font-size:12px;">{{ storage_stats.backups_files }} files</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.10); border-radius:8px; padding:10px; text-align:center; background:rgba(255,255,255,0.03);">
+          <div class="muted">Config / Logs / Other</div>
+          <strong>{{ storage_stats.config_size }} / {{ storage_stats.logs_size }} / {{ storage_stats.other_size }}</strong>
+        </div>
+      </div>
+
+      {% if storage_stats.rows %}
+        <div class="table-wrap" style="margin-top:14px;">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th>Database</th>
+                <th style="width:130px;">DB file</th>
+                <th style="width:160px;">Uploads</th>
+                <th style="width:120px;">Upload files</th>
+                <th style="width:130px;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in storage_stats.rows %}
+                <tr>
+                  <td style="font-weight:650;">{{ row.name }}</td>
+                  <td>{{ row.db_size }}</td>
+                  <td>{{ row.upload_size }}</td>
+                  <td>{{ row.upload_files }}</td>
+                  <td>{{ row.total_size }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      {% if backup_entries %}
+        <div class="table-wrap" style="margin-top:14px;">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th>Saved Backups</th>
+                <th style="width:120px;">Size</th>
+                <th style="width:180px;">Modified</th>
+                <th style="width:120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for backup in backup_entries[:12] %}
+                <tr>
+                  <td><a href="{{ url_for('db_backup_download', backup_name=backup.name) }}" style="color:inherit;">{{ backup.name }}</a></td>
+                  <td>{{ backup.size_mb }} MB</td>
+                  <td><span class="muted">{{ backup.modified }}</span></td>
+                  <td>
+                    <form method="post" action="{{ url_for('db_backup_delete') }}" style="margin:0;" onsubmit="return confirm('Delete saved backup {{ backup.name|e }}?')">
+                      {{ csrf_field() }}
+                      <input type="hidden" name="backup_name" value="{{ backup.name }}">
+                      <button class="btn btn-danger" type="submit">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </details>
+</div>
+
+{% endblock %}

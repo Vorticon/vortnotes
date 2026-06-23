@@ -1,0 +1,1208 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <form class="form" id="noteForm" method="post" enctype="multipart/form-data">
+    {{ csrf_field() }}
+    <div class="row2">
+      <div>
+        <div class="label">Title</div>
+        <input class="input" name="title" value="{{ (note.title or note.description) | e }}" />
+      </div>
+      <div>
+        <div class="label">Tag</div>
+        <input class="input" name="tag" value="{{ (note.tag or '') | e }}" placeholder="tag1, tag2, tag3">
+      </div>
+    </div>
+
+    <div>
+      <div class="label">Content</div>
+      <div class="editor">
+        <div id="editor" style="height:320px;"></div>
+      </div>
+      <input type="hidden" name="content_html" id="content_html">
+      <input type="hidden" name="content_delta" id="content_delta">
+    </div>
+
+    {% if is_edit %}
+    <div>
+      <div class="label">Attachments</div>
+      <div class="muted" style="text-align:center;">Drag tiles to rearrange. Right-click a tile for properties and delete.</div>
+
+      <div id="reorderGrid" class="links-desktop-grid vn-note-attachment-grid" style="margin-top:10px;">
+        {% for a in attachments %}
+          <div class="link-tile attach-edit-tile reorder-item content-reorder-item" draggable="true" data-aid="{{a.id}}" data-isimage="{{ '1' if a.is_image else '0' }}" data-mime="{{ a.mime | e }}" data-icon="{{ (a.icon_stored_name or '') | e }}" data-icon-action="keep" data-name="{{ a.original_name | e }}" data-url="{{upload_prefix}}/{{a.stored_name}}">
+            <a class="attach-link attach-open-link attach-link--edit" href="{{upload_prefix}}/{{a.stored_name}}" target="_blank" rel="noopener" draggable="false" title="Open in new tab">
+              <div class="attach-thumb link-thumb" title="{{a.original_name | e}}">
+                {% if a.icon_stored_name %}
+                  <img src="{{upload_prefix}}/{{a.icon_stored_name}}" alt="{{a.original_name | e}}">
+                {% elif a.is_image %}
+                  <img src="{{upload_prefix}}/{{a.stored_name}}" alt="{{a.original_name | e}}">
+                {% elif a.is_video %}
+                  <div class="attach-fileicon" aria-hidden="true">🎬</div>
+                {% elif a.is_audio %}
+                  <div class="attach-fileicon" aria-hidden="true">🎵</div>
+                {% else %}
+                  <div class="attach-fileicon">📎</div>
+                {% endif %}
+              </div>
+              <div class="attach-name">{{a.original_name}}</div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+
+      <input type="hidden" name="attachment_state" id="attachment_state" value="">
+    </div>
+    {% endif %}
+
+    <div>
+      <div class="label">{% if is_edit %}Add more attachments{% else %}Attachments{% endif %}</div>
+      <input class="input" style="padding: 8px 10px;" type="file" name="attachments" multiple />
+      {% if is_edit %}
+        <div class="help">Existing attachments stay. Uploading more will append to the end.</div>
+      {% else %}
+        <div class="help">Tip: upload images or files. Images will show on the note page and are resizable.</div>
+      {% endif %}
+    </div>
+
+    <div id="noteUploadProgress" class="vn-upload-progress" hidden aria-live="polite">
+      <div class="vn-upload-progress-label">
+        <span id="noteUploadProgressText">Uploading...</span>
+        <span id="noteUploadProgressPct">0%</span>
+      </div>
+      <div class="vn-upload-progress-track">
+        <div id="noteUploadProgressBar" class="vn-upload-progress-bar"></div>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:center; margin-top: 4px; flex-wrap:wrap;">
+      <div class="seg-group flat">
+        <button class="btn" type="submit" draggable="false">{% if is_edit %}Save changes{% else %}Save note{% endif %}</button>
+        {% if is_edit %}
+          <a class="btn" href="{{ url_for('view_note', note_id=note.id) }}">Cancel</a>
+          <button class="btn danger" type="submit" form="delete-note-form" onclick="return confirmDeleteNote()">Delete note</button>
+        {% else %}
+          <a class="btn" href="{{ url_for('index') }}">Cancel</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+
+{% if is_edit %}
+
+<!-- External (non-nested) forms for deletes -->
+<form id="delete-note-form" method="post" action="{{ url_for('delete_note', note_id=note.id) }}">{{ csrf_field() }}</form>
+{% for a in attachments %}
+  <form id="del-att-{{a.id}}" method="post" action="{{ url_for('delete_attachment', att_id=a.id) }}">{{ csrf_field() }}</form>
+{% endfor %}
+{% endif %}
+
+<script src="{{ url_for('static', filename='vendor/quill/quill.js') }}"></script>
+<!-- Image properties modal (click an image inside the editor) -->
+<div id="imgPropsBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="imgPropsTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div id="imgPropsTitle" class="vn-modal-title">Image properties</div>
+      <button type="button" class="vn-modal-close" id="imgPropsCloseBtn" aria-label="Close">×</button>
+    </div>
+
+    <div class="vn-modal-body">
+      <div class="vn-form-row">
+        <label class="vn-label" for="imgWidthPx">Width (px)</label>
+        <input id="imgWidthPx" class="input" type="number" min="1" placeholder="auto" />
+      </div>
+      <div class="vn-form-row">
+        <label class="vn-label" for="imgHeightPx">Height (px)</label>
+        <input id="imgHeightPx" class="input" type="number" min="1" placeholder="auto" />
+      </div>
+
+      <label class="vn-check">
+        <input id="imgLockRatio" type="checkbox" checked />
+        <span>Lock aspect ratio</span>
+      </label>
+
+      <div class="vn-presets">
+        <div class="vn-presets-label">Sizes</div>
+        <div class="vn-presets-buttons">
+          <button type="button" class="btn btn-secondary vn-preset" data-size="128">Small</button>
+          <button type="button" class="btn btn-secondary vn-preset" data-size="256">Medium</button>
+          <button type="button" class="btn btn-secondary vn-preset" data-size="512">Large</button>
+        </div>
+      </div>
+
+      <div class="vn-modal-actions">
+        <button type="button" class="btn danger" id="imgPropsDeleteBtn">Delete</button>
+        <button type="button" class="btn btn-secondary" id="imgPropsResetBtn">Reset</button>
+        <button type="button" class="btn" id="imgPropsApplyBtn">Apply</button>
+      </div>
+
+      <div class="vn-modal-hint">
+        Tip: click an image again to reopen this dialog.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Link modal (URL + target) -->
+<div id="linkPropsBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="linkPropsTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div id="linkPropsTitle" class="vn-modal-title">Insert link</div>
+      <button type="button" class="vn-modal-close" id="linkPropsCloseBtn" aria-label="Close">×</button>
+    </div>
+
+    <div class="vn-modal-body">
+      <div class="vn-form-row">
+        <label class="vn-label" for="linkUrlInput">URL</label>
+        <input id="linkUrlInput" class="input" type="url" placeholder="https://example.com" />
+      </div>
+
+      <div class="vn-form-row">
+        <label class="vn-label" for="linkTargetSelect">Open in</label>
+        <select id="linkTargetSelect" class="input">
+          <option value="_self">Same window</option>
+          <option value="_blank">New tab</option>
+        </select>
+      </div>
+
+      <div class="vn-modal-actions">
+        <button type="button" class="btn btn-secondary" id="linkPropsCancelBtn">Cancel</button>
+        <button type="button" class="btn" id="linkPropsApplyBtn">Apply</button>
+      </div>
+
+      <div class="vn-modal-hint">
+        Tip: select text (or click an existing link) to edit it.
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if is_edit %}
+<!-- Attachment properties modal (right-click an attachment tile) -->
+<div id="attachmentPropsBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="attachmentPropsTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div id="attachmentPropsTitle" class="vn-modal-title">Attachment properties</div>
+      <button type="button" class="vn-modal-close" id="attachmentPropsCloseBtn" aria-label="Close">×</button>
+    </div>
+    <div class="vn-modal-body">
+      <input type="hidden" id="attachmentPropsId" value="">
+
+      <div class="vn-form-row">
+        <label class="vn-label" for="attachmentPropsName">Name</label>
+        <input id="attachmentPropsName" class="input" type="text">
+      </div>
+
+      <div class="vn-form-row">
+        <label class="vn-label" for="attachmentPropsPosition">Position</label>
+        <select id="attachmentPropsPosition" class="input"></select>
+      </div>
+
+      <div class="vn-form-row">
+        <label class="vn-label" for="attachmentPropsIconAction">Icon</label>
+        <select id="attachmentPropsIconAction" class="input">
+          <option value="keep">Keep current</option>
+          <option value="upload">Upload</option>
+          <option value="clear">Clear</option>
+        </select>
+      </div>
+
+      <div id="attachmentPropsIconUploadWrap" style="display:none;">
+        <input class="input" style="padding:8px 10px;" type="file" id="attachmentPropsIconFile" form="noteForm" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+        <div class="help">Small images work best.</div>
+      </div>
+
+      <div class="vn-modal-actions">
+        <button type="button" class="btn danger" id="attachmentPropsDeleteBtn">Delete</button>
+        <button type="button" class="btn btn-secondary" id="attachmentPropsOpenBtn">Open</button>
+        <button type="button" class="btn btn-secondary" id="attachmentPropsCancelBtn">Cancel</button>
+        <button type="button" class="btn" id="attachmentPropsApplyBtn">Apply</button>
+      </div>
+
+      <div class="vn-modal-hint">
+        Right-click any attachment tile to edit its label, position, or delete it.
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+/* ---- Quill ---- */
+
+// Extend available fonts in the Quill font dropdown
+const Font = Quill.import('formats/font');
+Font.whitelist = [
+  'arial','times-new-roman','georgia','verdana','tahoma','trebuchet-ms',
+  'courier-new','lucida-console','consolas','garamond','palatino','comic-sans','impact'
+];
+Quill.register(Font, true);
+
+// Quill's default color picker treats "black" as the implicit default and may
+// clear the color format instead of applying true black. Provide an explicit
+// palette so choosing black always applies #000000.
+const VN_COLOR_PALETTE = [
+  '#000000', '#ffffff',
+  '#e60000', '#ff9900', '#ffff00', '#008a00', '#0066cc', '#9933ff',
+  '#808080', '#4d4d4d', '#999999'
+];
+
+const VN_BG_PALETTE = [
+  'transparent', '#000000', '#ffffff',
+  '#e60000', '#ff9900', '#ffff00', '#008a00', '#0066cc', '#9933ff'
+];
+
+const quill = new Quill('#editor', {
+  theme: 'snow',
+  modules: {
+    toolbar: [
+      [{ 'font': Font.whitelist }, { 'size': [] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'color': VN_COLOR_PALETTE }, { 'background': VN_BG_PALETTE }],
+      [{ 'header': 1 }, { 'header': 2 }, 'blockquote', 'code-block'],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+      [{ 'direction': 'rtl' }, { 'align': [] }],
+      ['link', 'image', 'video'],
+      ['clean']
+    ],
+  }
+});
+const toolbar = quill.getModule('toolbar');
+
+// Load existing note content when editing
+const __initialHtml = {{ (note.content_html or '') | tojson }};
+if (__initialHtml) {
+  quill.clipboard.dangerouslyPasteHTML(__initialHtml);
+}
+
+toolbar.addHandler('link', function(){
+  if (window.openLinkModal) window.openLinkModal(quill);
+});
+
+// Quill videos are iframe embeds. In edit mode they can be awkward to remove
+// with Backspace/Delete, so make nearby or clicked video embeds deletable.
+(function(){
+  let activeVideoIndex = null;
+
+  function videoIndexFromNode(node){
+    if (!node) return null;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    const video = el && el.closest ? el.closest('iframe.ql-video') : null;
+    if (!video) return null;
+    const blot = Quill.find(video);
+    if (!blot) return null;
+    try {
+      const idx = quill.getIndex(blot);
+      return Number.isFinite(idx) ? idx : null;
+    } catch(e) {
+      return null;
+    }
+  }
+
+  function videoIndexNearSelection(key){
+    const range = quill.getSelection();
+    if (!range || range.length) return null;
+    const candidates = key === 'Backspace'
+      ? [range.index - 1, range.index]
+      : [range.index, range.index - 1];
+    for (const idx of candidates){
+      if (idx < 0) continue;
+      try {
+        const leaf = quill.getLeaf(idx);
+        const node = leaf && leaf[0] && leaf[0].domNode;
+        const el = node && node.nodeType === 1 ? node : node?.parentElement;
+        if (el && (el.matches?.('iframe.ql-video') || el.querySelector?.('iframe.ql-video'))) return idx;
+      } catch(e) {}
+    }
+    return null;
+  }
+
+  quill.root.addEventListener('click', (e) => {
+    const idx = videoIndexFromNode(e.target);
+    if (idx === null) return;
+    activeVideoIndex = idx;
+    quill.setSelection(idx + 1, 0, 'silent');
+  });
+
+  quill.root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+    const idx = activeVideoIndex !== null ? activeVideoIndex : videoIndexNearSelection(e.key);
+    if (idx === null || idx < 0) return;
+    e.preventDefault();
+    quill.deleteText(idx, 1, 'user');
+    activeVideoIndex = null;
+  });
+})();
+// --- Inline image upload (persist pasted/selected images) ---
+// Quill's default image handling can insert base64 data: URLs, which are stripped by the sanitizer.
+// We upload images to the server and insert a /uploads/... URL instead.
+
+function vnGetCsrfToken(){
+  const el = document.querySelector('input[name="csrf_token"]');
+  return el ? el.value : '';
+}
+
+async function vnUploadInlineImage(file){
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', file, file.name || 'image.png');
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/inline-upload', true);
+    xhr.setRequestHeader('X-CSRFToken', vnGetCsrfToken());
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+    xhr.upload.addEventListener('loadstart', () => {
+      if (window.vnShowNoteUploadProgress) window.vnShowNoteUploadProgress(0, 'Uploading image...');
+    });
+    xhr.upload.addEventListener('progress', (e) => {
+      if (!window.vnShowNoteUploadProgress) return;
+      if (e.lengthComputable && e.total > 0) window.vnShowNoteUploadProgress((e.loaded / e.total) * 100, 'Uploading image...');
+      else window.vnShowNoteUploadProgress(NaN, 'Uploading image...');
+    });
+    xhr.upload.addEventListener('load', () => {
+      if (window.vnShowNoteUploadProgress) window.vnShowNoteUploadProgress(NaN, 'Processing image...');
+    });
+
+    xhr.addEventListener('load', () => {
+      const data = (() => {
+        try { return JSON.parse(xhr.responseText || '{}'); } catch(e) { return null; }
+      })();
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.ok && data.url){
+        resolve(data.url);
+        return;
+      }
+      reject(new Error((data && data.error) ? data.error : ('Upload failed (' + xhr.status + ')')));
+    });
+    xhr.addEventListener('error', () => reject(new Error('Upload failed. Please try again.')));
+    if (window.vnShowNoteUploadProgress) window.vnShowNoteUploadProgress(0, 'Preparing image upload...');
+    xhr.send(fd);
+  });
+}
+
+function vnInsertImageAtCursor(url){
+  const range = quill.getSelection(true) || { index: quill.getLength(), length: 0 };
+  quill.insertEmbed(range.index, 'image', url, 'user');
+  quill.setSelection(range.index + 1, 0, 'silent');
+}
+
+// Toolbar "image" button: pick a file, upload, insert
+toolbar.addHandler('image', function(){
+  const input = document.createElement('input');
+  input.setAttribute('type', 'file');
+  input.setAttribute('accept', 'image/png,image/jpeg,image/jpg,image/gif,image/webp');
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+    try {
+      const url = await vnUploadInlineImage(file);
+      vnInsertImageAtCursor(url);
+    } catch(e) {
+      alert(e && e.message ? e.message : 'Inline image upload failed.');
+    }
+  });
+  input.click();
+});
+
+// Paste images from clipboard into the editor
+quill.root.addEventListener('paste', async (e) => {
+  try {
+    const cd = e.clipboardData;
+    if (!cd || !cd.items) return;
+    const items = Array.from(cd.items);
+    const imgItem = items.find(it => it.kind === 'file' && it.type && it.type.startsWith('image/'));
+    if (!imgItem) return;
+
+    e.preventDefault();
+    const file = imgItem.getAsFile();
+    if (!file) return;
+
+    const url = await vnUploadInlineImage(file);
+    vnInsertImageAtCursor(url);
+  } catch(err) {
+    // fall back to default paste behavior
+    console && console.warn && console.warn('Inline paste upload failed', err);
+  }
+});
+
+
+// Ensure selecting black actually applies a black color instead of clearing.
+toolbar.addHandler('color', function(value){
+  if (value === false || value === null || value === undefined) {
+    quill.format('color', false);
+    return;
+  }
+  // Normalize common representations
+  if (value === 'rgb(0, 0, 0)' || value === 'rgb(0,0,0)' || value === 'black') value = '#000000';
+  quill.format('color', value);
+});
+
+
+
+/* ---- Center Quill tooltip prompts (video/link) ---- */
+function centerQuillTooltip(){
+  const tip = document.querySelector('.ql-snow .ql-tooltip');
+  if (!tip || !tip.classList.contains('ql-editing')) return;
+  tip.style.position = 'fixed';
+  tip.style.left = '50%';
+  tip.style.top = '50%';
+  tip.style.transform = 'translate(-50%, -50%)';
+  tip.style.zIndex = '9999';
+}
+
+// Re-center when Quill opens the prompt, and on viewport changes
+document.addEventListener('click', () => setTimeout(centerQuillTooltip, 0));
+window.addEventListener('resize', () => setTimeout(centerQuillTooltip, 0));
+
+// Also observe tooltip class changes (Quill toggles ql-editing)
+(() => {
+  const tip = document.querySelector('.ql-snow .ql-tooltip');
+  if (!tip) return;
+  const obs = new MutationObserver(() => centerQuillTooltip());
+  obs.observe(tip, { attributes: true, attributeFilter: ['class', 'style'] });
+})();
+
+
+
+/* ---- Image click -> size dialog ---- */
+(function(){
+  const backdrop = document.getElementById('imgPropsBackdrop');
+  if (!backdrop) return;
+
+  const closeBtn = document.getElementById('imgPropsCloseBtn');
+  const applyBtn = document.getElementById('imgPropsApplyBtn');
+  const resetBtn = document.getElementById('imgPropsResetBtn');
+  const delBtn = document.getElementById('imgPropsDeleteBtn');
+  const wInput = document.getElementById('imgWidthPx');
+  const hInput = document.getElementById('imgHeightPx');
+  const lockChk = document.getElementById('imgLockRatio');
+
+  let activeImg = null;
+  let aspect = 1;
+
+  function parsePx(v){
+    if (!v) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function getDim(img){
+    // Prefer explicit attributes, then inline style, then natural.
+    const wAttr = parsePx(img.getAttribute('width'));
+    const hAttr = parsePx(img.getAttribute('height'));
+    const wStyle = parsePx((img.style.width||'').replace('px',''));
+    const hStyle = parsePx((img.style.height||'').replace('px',''));
+
+    const w = wAttr || wStyle || (img.naturalWidth || null);
+    const h = hAttr || hStyle || (img.naturalHeight || null);
+    return {w, h};
+  }
+
+  function setDim(img, w, h){
+    if (w) { img.setAttribute('width', String(w)); img.style.width = w + 'px'; }
+    else { img.removeAttribute('width'); img.style.width = ''; }
+
+    if (h) { img.setAttribute('height', String(h)); img.style.height = h + 'px'; }
+    else { img.removeAttribute('height'); img.style.height = ''; }
+  }
+
+  function open(){
+    backdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function close(){
+    backdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    activeImg = null;
+  }
+
+  function openForImage(img){
+    activeImg = img;
+    const {w, h} = getDim(img);
+    if (w && h) aspect = w / h;
+    wInput.value = w || '';
+    hInput.value = h || '';
+    lockChk.checked = true;
+    open();
+  }
+
+  function applyPreset(size){
+    if (!activeImg) return;
+    const s = parseInt(size, 10);
+    if (!Number.isFinite(s) || s <= 0) return;
+    if (lockChk.checked && aspect) {
+      wInput.value = String(s);
+      hInput.value = String(Math.round(s / aspect));
+    } else {
+      wInput.value = String(s);
+      hInput.value = String(s);
+    }
+  }
+
+  // Keep ratio if lock is on. If lock is off, default to square sizing.
+  wInput.addEventListener('input', () => {
+    const w = parsePx(wInput.value);
+    if (!w) return;
+    if (lockChk.checked) {
+      if (aspect) hInput.value = String(Math.round(w / aspect));
+    } else {
+      hInput.value = String(w);
+    }
+  });
+  hInput.addEventListener('input', () => {
+    const h = parsePx(hInput.value);
+    if (!h) return;
+    if (lockChk.checked) {
+      if (aspect) wInput.value = String(Math.round(h * aspect));
+    } else {
+      wInput.value = String(h);
+    }
+  });
+
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  if (delBtn) {
+    delBtn.addEventListener('click', () => {
+      if (!activeImg) return;
+      try { activeImg.remove(); } catch (e) {}
+      close();
+    });
+  }
+
+  resetBtn.addEventListener('click', () => {
+    if (!activeImg) return;
+    wInput.value = '';
+    hInput.value = '';
+  });
+
+  applyBtn.addEventListener('click', () => {
+    if (!activeImg) return;
+    let w = parsePx(wInput.value);
+    let h = parsePx(hInput.value);
+    // If lock is off, default to square sizing when only one dimension is provided.
+    if (!lockChk.checked) {
+      if (w && !h) h = w;
+      if (h && !w) w = h;
+    }
+    setDim(activeImg, w, h);
+    close();
+  });
+
+  document.querySelectorAll('.vn-preset').forEach(btn => {
+    btn.addEventListener('click', () => applyPreset(btn.dataset.size));
+  });
+
+  // Click handler inside editor
+  quill.root.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.tagName === 'IMG') {
+      e.preventDefault();
+      e.stopPropagation();
+      openForImage(t);
+    }
+  });
+})();
+
+
+
+/* ---- Link modal: URL + target, centered ---- */
+(function(){
+  const backdrop = document.getElementById('linkPropsBackdrop');
+  if (!backdrop) return;
+
+  const urlInput = document.getElementById('linkUrlInput');
+  const targetSelect = document.getElementById('linkTargetSelect');
+  const closeBtn = document.getElementById('linkPropsCloseBtn');
+  const cancelBtn = document.getElementById('linkPropsCancelBtn');
+  const applyBtn = document.getElementById('linkPropsApplyBtn');
+
+  let activeQuill = null;
+  let range = null;
+
+  function show(){
+    backdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    urlInput.focus();
+  }
+
+  function hide(){
+    backdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    activeQuill = null;
+    range = null;
+  }
+
+  function getExistingLinkAt(q, r){
+    if (!r) return null;
+    const formats = q.getFormat(r);
+    if (formats && formats.link) return formats.link;
+    return null;
+  }
+
+  function getExistingTargetFromDOM(){
+    // Quill stores link as <a href="...">, target not built-in. We add it.
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const node = sel.anchorNode;
+    if (!node) return null;
+    const el = (node.nodeType === 1) ? node : node.parentElement;
+    if (!el) return null;
+    const a = el.closest ? el.closest('a') : null;
+    if (!a) return null;
+    return a.getAttribute('target');
+  }
+
+  window.openLinkModal = function(q){
+    activeQuill = q;
+    range = q.getSelection(true);
+
+    const existing = getExistingLinkAt(q, range);
+    urlInput.value = existing || '';
+
+    const domTarget = getExistingTargetFromDOM();
+    targetSelect.value = (domTarget === '_blank') ? '_blank' : '_self';
+
+    show();
+  };
+
+  function apply(){
+    if (!activeQuill) return;
+    const url = (urlInput.value || '').trim();
+    const target = targetSelect.value || '_self';
+
+    // Restore selection and apply
+    activeQuill.focus();
+    if (range) activeQuill.setSelection(range.index, range.length, 'silent');
+
+    if (!url) {
+      activeQuill.format('link', false);
+      hide();
+      return;
+    }
+
+    // Apply Quill link format (href)
+    activeQuill.format('link', url);
+
+    // Patch DOM selection anchor with target
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const node = sel.anchorNode;
+      const el = node ? ((node.nodeType === 1) ? node : node.parentElement) : null;
+      const a = el && el.closest ? el.closest('a') : null;
+      if (a) {
+        if (target === '_blank') {
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener');
+        } else {
+          a.removeAttribute('target');
+          // keep rel clean
+          if (a.getAttribute('rel') === 'noopener') a.removeAttribute('rel');
+        }
+      }
+    }, 0);
+
+    hide();
+  }
+
+  closeBtn.addEventListener('click', hide);
+  cancelBtn.addEventListener('click', hide);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) hide(); });
+  applyBtn.addEventListener('click', apply);
+  urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+})();
+
+
+
+/* ---- Reorder attachments (edit page) ---- */
+(function(){
+  const list = document.getElementById('reorderGrid');
+  if (!list) return;
+
+  const stateInput = document.getElementById('attachment_state');
+
+  // Click & hold to drag (prevents accidental opens)
+  const HOLD_MS = 200;
+  const MOVE_TOL = 6;
+
+  let draggingEl = null;
+  let suppressClickUntil = 0;
+
+  function enableDrag(item, enabled){
+    if (!item) return;
+    item.setAttribute('draggable', enabled ? 'true' : 'false');
+  }
+
+  function updateOrderLabels(){
+    [...list.querySelectorAll('.reorder-item')].forEach((item, idx) => {
+      const lab = item.querySelector('.order-label');
+      if (lab) lab.textContent = String(idx + 1);
+    });
+  }
+
+  function buildAttachmentState(){
+    const items = [...list.querySelectorAll('.reorder-item')];
+    return items.map((item, idx) => ({
+      id: Number(item.dataset.aid),
+      order: idx,
+      name: (item.dataset.name || item.querySelector('.attach-name')?.textContent || '').trim(),
+      icon_action: (item.dataset.iconAction || 'keep')
+    }));
+  }
+
+  function updateState(){
+    if (!stateInput) return;
+    stateInput.value = JSON.stringify(buildAttachmentState());
+  }
+
+  const propsBackdrop = document.getElementById('attachmentPropsBackdrop');
+  const propsId = document.getElementById('attachmentPropsId');
+  const propsName = document.getElementById('attachmentPropsName');
+  const propsPosition = document.getElementById('attachmentPropsPosition');
+  const propsClose = document.getElementById('attachmentPropsCloseBtn');
+  const propsCancel = document.getElementById('attachmentPropsCancelBtn');
+  const propsApply = document.getElementById('attachmentPropsApplyBtn');
+  const propsDelete = document.getElementById('attachmentPropsDeleteBtn');
+  const propsOpen = document.getElementById('attachmentPropsOpenBtn');
+  const propsIconAction = document.getElementById('attachmentPropsIconAction');
+  const propsIconFile = document.getElementById('attachmentPropsIconFile');
+  const propsIconUploadWrap = document.getElementById('attachmentPropsIconUploadWrap');
+  let propsItem = null;
+
+  function attachmentFallbackHtml(item, name){
+    const mime = ((item?.dataset?.mime || '') + '').toLowerCase();
+    const isImage = item?.dataset?.isimage === '1';
+    const url = item?.dataset?.url || '';
+    if (isImage && url) return `<img src="${url}" alt="${escapeHtml(name)}">`;
+    if (mime.startsWith('video/')) return '<div class="attach-fileicon" aria-hidden="true">🎬</div>';
+    if (mime.startsWith('audio/')) return '<div class="attach-fileicon" aria-hidden="true">🎵</div>';
+    return '<div class="attach-fileicon">📎</div>';
+  }
+
+  function escapeHtml(s){
+    return String(s || '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[ch]));
+  }
+
+  function applyIconUploadVisibility(){
+    const show = (propsIconAction?.value || 'keep') === 'upload';
+    if (propsIconUploadWrap) propsIconUploadWrap.style.display = show ? 'block' : 'none';
+    if (propsIconFile) propsIconFile.required = show;
+  }
+
+  function fillPositionOptions(activeItem){
+    if (!propsPosition) return;
+    const items = [...list.querySelectorAll('.reorder-item')];
+    const current = Math.max(0, items.indexOf(activeItem));
+    propsPosition.innerHTML = '';
+    items.forEach((_, idx) => {
+      const opt = document.createElement('option');
+      opt.value = String(idx);
+      opt.textContent = String(idx + 1);
+      if (idx === current) opt.selected = true;
+      propsPosition.appendChild(opt);
+    });
+  }
+
+  function openAttachmentProps(item){
+    if (!item || !propsBackdrop) return;
+    propsItem = item;
+    if (propsId) propsId.value = item.dataset.aid || '';
+    if (propsName) propsName.value = (item.dataset.name || item.querySelector('.attach-name')?.textContent || '').trim();
+    if (propsIconAction) propsIconAction.value = item.dataset.iconAction || 'keep';
+    if (propsIconFile){
+      propsIconFile.value = '';
+      propsIconFile.name = item.dataset.aid ? `attachment_icon_file_${item.dataset.aid}` : '';
+    }
+    applyIconUploadVisibility();
+    fillPositionOptions(item);
+    propsBackdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    try{ propsName?.focus(); propsName?.select(); }catch(e){}
+  }
+
+  function closeAttachmentProps(){
+    if (propsBackdrop) propsBackdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+    propsItem = null;
+  }
+
+  function moveAttachmentTo(item, index){
+    const items = [...list.querySelectorAll('.reorder-item')].filter(el => el !== item);
+    const target = items[Math.max(0, Math.min(index, items.length))] || null;
+    if (target) list.insertBefore(item, target);
+    else list.appendChild(item);
+    updateOrderLabels();
+    updateState();
+  }
+
+  propsClose?.addEventListener('click', closeAttachmentProps);
+  propsCancel?.addEventListener('click', closeAttachmentProps);
+  propsBackdrop?.addEventListener('click', (e) => { if (e.target === propsBackdrop) closeAttachmentProps(); });
+  propsOpen?.addEventListener('click', () => {
+    const href = propsItem?.querySelector('.attach-open-link')?.href || propsItem?.dataset.url || '';
+    if (href) window.open(href, '_blank', 'noopener');
+  });
+  propsDelete?.addEventListener('click', () => {
+    if (!propsItem) return;
+    const aid = propsItem.dataset.aid;
+    const name = (propsName?.value || propsItem.dataset.name || 'attachment').trim();
+    if (!aid) return;
+    if (!confirm(`Delete "${name}"?`)) return;
+    const form = document.getElementById('del-att-' + aid);
+    if (form) form.submit();
+  });
+  propsApply?.addEventListener('click', () => {
+    if (!propsItem) return;
+    const name = (propsName?.value || '').trim() || 'attachment';
+    propsItem.dataset.name = name;
+    const label = propsItem.querySelector('.attach-name');
+    const thumb = propsItem.querySelector('.attach-thumb');
+    const link = propsItem.querySelector('.attach-open-link');
+    if (label) label.textContent = name;
+    if (thumb) thumb.title = name;
+    if (link) link.title = name;
+    const iconAction = propsIconAction?.value || 'keep';
+    propsItem.dataset.iconAction = iconAction;
+    if (thumb && iconAction === 'clear'){
+      thumb.innerHTML = attachmentFallbackHtml(propsItem, name);
+    } else if (thumb && iconAction === 'upload' && propsIconFile?.files?.[0]){
+      const url = URL.createObjectURL(propsIconFile.files[0]);
+      thumb.innerHTML = `<img src="${url}" alt="${escapeHtml(name)}">`;
+    }
+    const pos = parseInt(propsPosition?.value || '0', 10);
+    if (Number.isFinite(pos)) moveAttachmentTo(propsItem, pos);
+    updateState();
+    closeAttachmentProps();
+  });
+  propsIconAction?.addEventListener('change', applyIconUploadVisibility);
+
+  // Wire hold-to-drag for each tile
+  list.querySelectorAll('.reorder-item').forEach(item => {
+    enableDrag(item, true);
+
+    let pressTimer = null;
+    let startX = 0, startY = 0;
+    let armed = false;
+
+    const clearPress = () => {
+      if (pressTimer) clearTimeout(pressTimer);
+      pressTimer = null;
+      armed = false;
+      if (!draggingEl){
+        item.classList.remove('drag-ready');
+        enableDrag(item, false);
+      }
+    };
+
+    item.addEventListener('pointerdown', (e) => {
+      // primary button only
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest('.attach-delete-x')) return;
+
+      startX = e.clientX;
+      startY = e.clientY;
+      armed = false;
+
+      if (pressTimer) clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        armed = true;
+        suppressClickUntil = Date.now() + 2200; // swallow click after long-press
+        item.classList.add('drag-ready');
+        enableDrag(item, true);
+      }, HOLD_MS);
+    });
+
+    item.addEventListener('pointermove', (e) => {
+      if (!pressTimer) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      // If user moves a lot before hold completes, cancel the press
+      if (!armed && (dx > MOVE_TOL * 3 || dy > MOVE_TOL * 3)){
+        clearPress();
+      }
+    });
+
+    item.addEventListener('pointerup', clearPress);
+    item.addEventListener('pointercancel', clearPress);
+    item.addEventListener('pointerleave', clearPress);
+
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openAttachmentProps(item);
+    });
+
+    // Delete X uses external forms
+    const delBtn = item.querySelector('.attach-delete-x');
+    if (delBtn) {
+      delBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const aid = item.dataset.aid;
+        if (!aid) return;
+        const name = (item.querySelector('.attach-name')?.textContent || 'attachment').trim();
+        if (!confirm(`Delete "${name}"?`)) return;
+        const form = document.getElementById('del-att-' + aid);
+        if (form) form.submit();
+      });
+    }
+
+    // Prevent accidental opens when the user is press-holding to drag.
+    const openLink = item.querySelector('.attach-open-link');
+    if (openLink){
+      openLink.addEventListener('pointerdown', (e) => {
+        // If we're in a drag gesture window, don't let the anchor take focus/navigation.
+        if (Date.now() < suppressClickUntil || item.classList.contains('drag-ready') || draggingEl){
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+      openLink.addEventListener('click', (e) => {
+        if (Date.now() < suppressClickUntil || item.classList.contains('drag-ready') || draggingEl){
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+    }
+  });
+
+  // Prevent opening the attachment when the user was holding to drag
+  list.addEventListener('click', (e) => {
+    if (Date.now() < suppressClickUntil){
+      const link = e.target.closest('.attach-open-link');
+      if (link){
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+  }, true);
+
+  // Drag events
+  list.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.reorder-item');
+    if (!item) return;
+
+    draggingEl = item;
+    item.classList.add('dragging');
+
+    if (e.dataTransfer){
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', item.dataset.aid || ''); } catch {}
+    }
+  });
+
+  list.addEventListener('dragend', (e) => {
+    const item = e.target.closest('.reorder-item');
+    if (item){
+      item.classList.remove('dragging', 'drag-ready');
+      enableDrag(item, true);
+    }
+    draggingEl = null;
+    updateOrderLabels();
+    updateState();
+  });
+
+  // Grid-friendly dragover for multi-column layout
+  list.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (!draggingEl) return;
+
+    const rect = list.getBoundingClientRect();
+    const first = list.querySelector('.reorder-item');
+    if (!first) return;
+
+    const firstRect = first.getBoundingClientRect();
+    const cs = getComputedStyle(list);
+
+    // Determine column count from computed grid template columns
+    let cols = 1;
+    const gtc = (cs.gridTemplateColumns || '').trim();
+    if (gtc && gtc !== 'none'){
+      cols = gtc.split(/\s+/).length;
+    } else {
+      cols = Math.max(1, Math.round(list.clientWidth / firstRect.width));
+    }
+
+    const colGap = parseFloat(cs.columnGap || cs.gridColumnGap || '0') || 0;
+    const rowGap = parseFloat(cs.rowGap || cs.gridRowGap || '0') || 0;
+
+    const cellW = firstRect.width + colGap;
+    const cellH = firstRect.height + rowGap;
+
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    let col = Math.floor(x / cellW);
+    let row = Math.floor(y / cellH);
+
+    col = Math.max(0, Math.min(cols - 1, col));
+    row = Math.max(0, row);
+
+    let index = row * cols + col;
+
+    const children = [...list.querySelectorAll('.reorder-item')];
+    index = Math.max(0, Math.min(children.length, index));
+
+    let target = children[index] || null;
+
+    if (!target){
+      list.appendChild(draggingEl);
+      return;
+    }
+    if (target === draggingEl) return;
+
+    const currentIdx = children.indexOf(draggingEl);
+    const targetIdx = children.indexOf(target);
+
+    if (currentIdx < targetIdx){
+      list.insertBefore(draggingEl, target.nextSibling);
+    } else {
+      list.insertBefore(draggingEl, target);
+    }
+  });
+
+  list.addEventListener('drop', (e) => {
+    e.preventDefault();
+    updateOrderLabels();
+    updateState();
+  });
+
+  // Expose builder so saveAll can ensure latest state
+  window.vnBuildAttachmentState = buildAttachmentState;
+
+  // Init
+  updateOrderLabels();
+  updateState();
+})();
+;
+
+
+
+function confirmDeleteNote(){
+  return confirm('Delete this note? This cannot be undone.');
+}
+
+function saveAll(){
+  document.getElementById('content_html').value = quill.root.innerHTML;
+  try {
+    document.getElementById('content_delta').value = JSON.stringify(quill.getContents());
+  } catch(e) {
+    document.getElementById('content_delta').value = '';
+  }
+
+  const stateInput = document.getElementById('attachment_state');
+  if (stateInput && window.vnBuildAttachmentState){
+    try { stateInput.value = JSON.stringify(window.vnBuildAttachmentState()); } catch(e) {}
+  }
+  return true;
+}
+
+function vnShowNoteUploadProgress(percent, label){
+  const wrap = document.getElementById('noteUploadProgress');
+  const bar = document.getElementById('noteUploadProgressBar');
+  const pct = document.getElementById('noteUploadProgressPct');
+  const text = document.getElementById('noteUploadProgressText');
+  if (!wrap || !bar || !pct) return;
+  wrap.hidden = false;
+  if (text && label) text.textContent = label;
+  if (Number.isFinite(percent)){
+    const n = Math.max(0, Math.min(100, Math.round(percent)));
+    wrap.classList.remove('is-indeterminate');
+    bar.style.width = n + '%';
+    pct.textContent = n + '%';
+  } else {
+    wrap.classList.add('is-indeterminate');
+    pct.textContent = '';
+  }
+}
+
+function vnSetNoteFormBusy(form, busy){
+  form.querySelectorAll('button, input, select, textarea, a.btn').forEach(el => {
+    if (el.tagName === 'A'){
+      el.style.pointerEvents = busy ? 'none' : '';
+      el.style.opacity = busy ? '0.65' : '';
+    } else {
+      if (busy){
+        el.dataset.vnWasDisabled = el.disabled ? '1' : '0';
+        el.disabled = true;
+      } else {
+        el.disabled = el.dataset.vnWasDisabled === '1';
+        delete el.dataset.vnWasDisabled;
+      }
+    }
+  });
+}
+
+function vnSubmitNoteWithProgress(form){
+  const fd = new FormData(form);
+  const xhr = new XMLHttpRequest();
+  xhr.open((form.method || 'POST').toUpperCase(), form.action || window.location.href, true);
+  xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+  xhr.upload.addEventListener('loadstart', () => vnShowNoteUploadProgress(0, 'Uploading...'));
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable && e.total > 0) vnShowNoteUploadProgress((e.loaded / e.total) * 100, 'Uploading...');
+    else vnShowNoteUploadProgress(NaN, 'Uploading...');
+  });
+  xhr.upload.addEventListener('load', () => vnShowNoteUploadProgress(NaN, 'Processing...'));
+
+  xhr.addEventListener('load', () => {
+    const finalUrl = xhr.responseURL || form.action || window.location.href;
+    if (xhr.status >= 200 && xhr.status < 400){
+      window.location.href = finalUrl;
+      return;
+    }
+    vnSetNoteFormBusy(form, false);
+    vnShowNoteUploadProgress(100, 'Upload failed');
+    alert(xhr.responseText || ('Upload failed (' + xhr.status + ').'));
+  });
+
+  xhr.addEventListener('error', () => {
+    vnSetNoteFormBusy(form, false);
+    vnShowNoteUploadProgress(100, 'Upload failed');
+    alert('Upload failed. Please try again.');
+  });
+
+  xhr.addEventListener('abort', () => {
+    vnSetNoteFormBusy(form, false);
+    vnShowNoteUploadProgress(0, 'Upload canceled');
+  });
+
+  vnSetNoteFormBusy(form, true);
+  vnShowNoteUploadProgress(0, 'Preparing upload...');
+  xhr.send(fd);
+}
+
+document.getElementById('noteForm')?.addEventListener('submit', function(e){
+  e.preventDefault();
+  if (!saveAll()) return;
+  vnSubmitNoteWithProgress(this);
+});
+
+
+// Ctrl/Cmd+S to submit
+document.addEventListener("keydown", function(e){
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC')>=0;
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (mod && (e.key === "s" || e.key === "S")){
+    e.preventDefault();
+    const form = document.querySelector("form.form");
+    if (form) form.requestSubmit();
+  }
+});
+
+
+</script>
+{% endblock %}

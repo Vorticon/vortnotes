@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="filters" style="align-items:flex-end; gap:12px; flex-wrap:wrap;">
+<div style="flex:1; min-width:260px;">
+      <div class="label">Filter</div>
+      <div style="display:flex; gap:8px;">
+        <select id="filterField" class="input" style="max-width:180px;">
+          <option value="all">All fields</option>
+          <option value="title">Title</option>
+          <option value="tag">Tag</option>
+          <option value="date">Date</option>
+        </select>
+        <input id="filterText" class="input" placeholder="Type filter text… (press Enter)" />
+        <button class="btn" type="button" onclick="addFilterFromInput()">Apply</button>
+        {% if can_edit %}
+          <button class="btn primary" type="button" onclick="window.location.href='{{ url_for('new_note') }}'">Create</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div id="chips" class="chips" style="margin-top:10px;"></div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table" id="notesTable">
+      <thead>
+        <tr>
+          {% set s = sort or 'id' %}
+          {% set d = direction or 'desc' %}
+          <th style="width: 48px; text-align:center;">★</th>
+          <th>
+            {% set nd = 'asc' if s != 'title' else ('asc' if d == 'desc' else 'desc') %}
+            <a href="{{ index_url(1, filters, 'title', nd) }}">Title
+              {% if s == 'title' %}<span class="muted">{{ '▲' if d == 'asc' else '▼' }}</span>{% endif %}
+            </a>
+          </th>
+          <th style="width: 200px;">
+            {% set nd = 'asc' if s != 'tag' else ('asc' if d == 'desc' else 'desc') %}
+            <a href="{{ index_url(1, filters, 'tag', nd) }}">Tag
+              {% if s == 'tag' %}<span class="muted">{{ '▲' if d == 'asc' else '▼' }}</span>{% endif %}
+            </a>
+          </th>
+          <th style="width: 220px;">
+            {% set nd = 'desc' if s != 'date' else ('asc' if d == 'desc' else 'desc') %}
+            <a href="{{ index_url(1, filters, 'date', nd) }}">Date
+              {% if s == 'date' %}<span class="muted">{{ '▲' if d == 'asc' else '▼' }}</span>{% endif %}
+            </a>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if notes|length == 0 %}
+        <tr onclick="event.stopPropagation();">
+          <td colspan="4" style="text-align:center; padding:24px;">
+            <div style="font-size:18px; margin-bottom:6px;">No notes found</div>
+            <div class="muted" style="margin-bottom:12px;">Try adjusting filters, or create a new note.</div>
+            {% if can_edit %}
+              <a class="btn primary" href="{{ url_for('new_note') }}">Create</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        {% for n in notes %}
+        <tr class="note-row"
+            data-id="{{n.id}}"
+            data-title="{{n.title | e}}"
+            data-tag="{{(n.tag or '') | e}}"
+            data-date="{{n.created_at | e}}"
+            onclick="window.location.href='/notes/{{n.id}}'">
+          <td style="text-align:center;">
+            {% if can_edit %}
+              <form method="post" action="{{ url_for('pin_note', note_id=n.id) }}" onsubmit="event.stopPropagation();">
+                {{ csrf_field() }}
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button type="submit" class="pin-btn" title="{{ 'Unpin' if (n.pinned|default(0)) else 'Pin' }}" onclick="event.stopPropagation();">
+                  {{ '★' if (n.pinned|default(0)) else '☆' }}
+                </button>
+              </form>
+            {% else %}
+              <span class="muted" title="Read-only">{{ '★' if (n.pinned|default(0)) else '☆' }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {{n.title}}
+            {% if (n.attach_count|default(0))|int > 0 %}
+              <span class="muted" title="{{ n.attach_count }} attachment{{ '' if (n.attach_count|int==1) else 's' }}" style="margin-left:8px;">📎 {{ n.attach_count }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% set ns = namespace(any=false) %}
+            {% for t in (n.tag or '').split(',') %}
+              {% set tt = t.strip() %}
+              {% if tt %}
+                {% set ns.any = true %}
+                <span class="badge">{{ tt }}</span>
+              {% endif %}
+            {% endfor %}
+            {% if not ns.any %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ n.created_at|fmt_dt }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// Server-side filters + pagination.
+// Filters are stored in the URL as repeated f_field / f_value params.
+let filters = {{ (filters or []) | tojson }}; // [{field, value}, ...]
+const currentSort = {{ (sort or 'id') | tojson }};
+const currentDir = {{ (direction or 'desc') | tojson }};
+const $ = (sel) => document.querySelector(sel);
+
+function normalize(s){ return (s || '').toString().toLowerCase().trim(); }
+
+function gotoPage(page){
+  const params = new URLSearchParams();
+  params.set('page', String(Math.max(1, parseInt(page || '1', 10) || 1)));
+  if (currentSort) params.set('sort', currentSort);
+  if (currentDir) params.set('dir', currentDir);
+  for (const f of filters){
+    if (!f || !f.value) continue;
+    params.append('f_field', f.field || 'all');
+    params.append('f_value', f.value);
+  }
+  window.location.href = `/?${params.toString()}`;
+}
+
+function fieldLabel(field){
+  if (field === 'title') return 'Title';
+  if (field === 'tag') return 'Tag';
+  if (field === 'date') return 'Date';
+  return 'All';
+}
+
+function renderChips(){
+  const chips = $('#chips');
+  chips.innerHTML = '';
+  if (filters.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'No filters applied.';
+    chips.appendChild(empty);
+    return;
+  }
+  filters.forEach((f, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `
+      <span>${fieldLabel(f.field)}: <strong>${escapeHtml(f.value)}</strong></span>
+      <button type="button" aria-label="Remove filter" onclick="removeFilter(${idx})">×</button>
+    `;
+    chips.appendChild(chip);
+  });
+}
+
+function removeFilter(index){
+  filters.splice(index, 1);
+  renderChips();
+  gotoPage(1);
+}
+
+function addFilter(field, value){
+  const v = (value || '').trim();
+  if (!v) return;
+  filters.push({ field: field || 'all', value: v });
+  renderChips();
+  gotoPage(1);
+}
+
+function addFilterFromInput(){
+  const field = $('#filterField').value || 'all';
+  const t = $('#filterText').value;
+  if (t.trim()) addFilter(field, t);
+  $('#filterText').value = '';
+}
+
+function handleEnter(e){
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    addFilterFromInput();
+  }
+}
+
+$('#filterText').addEventListener('keydown', handleEnter);
+
+function escapeHtml(unsafe) {
+  return (unsafe || '')
+    .toString()
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'",'&#039;');
+}
+
+renderChips();
+
+// Pre-select UI state if filters are present
+if (filters.length > 0){
+  $('#filterField').value = filters[filters.length - 1].field || 'all';
+}
+</script>
+
+{% if total_pages > 1 %}
+<div class="card" style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap;">
+  {% if page > 1 %}
+    <a class="btn" href="{{ index_url(page-1, filters) }}">Prev</a>
+  {% else %}
+    <span class="btn" style="opacity:.5; pointer-events:none;">Prev</span>
+  {% endif %}
+
+  <span class="muted">Page <strong>{{ page }}</strong> of <strong>{{ total_pages }}</strong> ({{ total }} notes)</span>
+
+  {% if page < total_pages %}
+    <a class="btn" href="{{ index_url(page+1, filters) }}">Next</a>
+  {% else %}
+    <span class="btn" style="opacity:.5; pointer-events:none;">Next</span>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

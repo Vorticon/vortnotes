@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  details.db-accordion > summary {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 0;
+  }
+  details.db-accordion > summary::-webkit-details-marker { display: none; }
+  details.db-accordion > summary .caret {
+    width: 0;
+    height: 0;
+    border-left: 6px solid rgba(255,255,255,0.65);
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    transform: rotate(0deg);
+    transition: transform 120ms ease;
+    margin-left: 2px;
+  }
+  details.db-accordion[open] > summary .caret { transform: rotate(90deg); }
+  .db-accordion-body { padding-top: 10px; }
+  .db-sep { height: 1px; background: rgba(255,255,255,0.08); margin: 18px 0; border: 0; }
+</style>
+
+<div class="card">
+  <h2 style="margin: 6px 0 0; text-align:center;">Settings</h2>
+  <div class="muted" style="margin-top:8px; text-align:center;">
+    Selected database: <strong>{{ settings_selected_db or '—' }}</strong>
+    {% if db_locked is not none %}
+      <span class="muted">({{ 'Locked' if db_locked else 'Unlocked' }})</span>
+    {% endif %}
+  </div>
+  {% if error_msg is defined and error_msg %}
+    <div class="alert" style="margin-top:12px;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+  {% if notice_msg is defined and notice_msg %}
+    <div class="pill" style="margin-top:12px; justify-content:center;">{{ notice_msg }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <details class="db-accordion" open>
+    <summary>
+      <span class="caret" aria-hidden="true"></span>
+      <h3 style="margin:0;">Database Selection</h3>
+    </summary>
+    <div class="db-accordion-body" style="max-width:640px; margin:0 auto;">
+
+  {% if select_error %}
+    <div class="pill danger" style="justify-content:center;">{{ select_error }}</div>
+    <div style="height:12px;"></div>
+  {% endif %}
+
+  <div id="db-help" class="muted" style="text-align:center; margin-bottom:12px;"></div>
+
+  <form method="post" action="{{ url_for('db_select') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ select_next_url }}">
+
+    <label class="label" for="db_name">Database</label>
+    <select id="db_name" class="input" name="name" style="width:100%;">
+      {% for db in select_dbs %}
+        <option value="{{ db }}" {% if db == select_selected_db %}selected{% endif %}>{{ db }}</option>
+      {% endfor %}
+    </select>
+
+    <div style="height:12px;"></div>
+
+    <label class="label" for="db_password">Password (optional)</label>
+    <input
+      id="db_password"
+      class="input"
+      type="password"
+      name="password"
+      placeholder="Enter password to unlock (full access)"
+      autocomplete="current-password"
+    >
+
+    <div id="remember_wrap" style="margin-top:10px; display:none;">
+      <label class="muted" style="display:flex; gap:8px; justify-content:center; align-items:center;">
+        <input type="checkbox" name="remember" value="1">
+        Remember access to all databases until logout
+      </label>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn primary" type="submit" style="flex:1;">Open</button>
+    </div>
+  </form>
+
+    <form id="dbLogoutForm" method="post" action="{{ url_for('logout') }}" style="margin-top:10px; {% if not selected_has_db_session %}display:none;{% endif %}">
+      {{ csrf_field() }}
+      <input id="dbLogoutName" type="hidden" name="name" value="{{ select_selected_db }}">
+      <button id="dbLogoutButton" class="btn" type="submit" style="width:100%;">Log out of {{ select_selected_db }}</button>
+    </form>
+    </div>
+  </details>
+</div>
+
+{% if admin_setup_required %}
+  <div class="card" style="text-align:center;">
+    <h3 style="margin-top:0;">Admin Password Required</h3>
+    <div class="muted" style="margin-bottom:12px;">
+      Set an admin password to unlock Database Management and configuration tools.
+    </div>
+    <a class="btn primary" href="{{ admin_login_url }}">Set Admin Password</a>
+  </div>
+{% elif can_admin %}
+  {% include "db.html" %}
+{% else %}
+  <div class="card" style="text-align:center;">
+    <h3 style="margin-top:0;">Admin Tools</h3>
+    <div class="muted" style="margin-bottom:12px;">
+      Database management is protected by the admin password.
+    </div>
+    <a class="btn" href="{{ admin_login_url }}">Admin Login</a>
+  </div>
+{% endif %}
+
+<script>
+  (function () {
+    const meta = {{ select_db_meta_json|safe }};
+    const sel = document.getElementById('db_name');
+    const pwd = document.getElementById('db_password');
+    const help = document.getElementById('db-help');
+    const rememberWrap = document.getElementById('remember_wrap');
+    const logoutForm = document.getElementById('dbLogoutForm');
+    const logoutName = document.getElementById('dbLogoutName');
+    const logoutButton = document.getElementById('dbLogoutButton');
+
+    function applyState(name) {
+      const m = meta[name] || {has_password:false, read_without_password:false, is_unlocked:false, has_db_session:false};
+      const hasPwd = !!m.has_password;
+      const canRead = !!m.read_without_password;
+      const isUnlocked = !!m.is_unlocked;
+      const hasDbSession = !!m.has_db_session;
+
+      if (logoutForm) logoutForm.style.display = hasDbSession ? 'block' : 'none';
+      if (logoutName) logoutName.value = name;
+      if (logoutButton) logoutButton.textContent = 'Log out of ' + name;
+
+      pwd.disabled = !hasPwd;
+      pwd.value = '';
+
+      if (!hasPwd) {
+        pwd.placeholder = 'No password set for this database';
+        help.textContent = 'This database is not password protected.';
+        rememberWrap.style.display = 'none';
+        return;
+      }
+
+      if (isUnlocked) {
+        pwd.disabled = true;
+        pwd.placeholder = 'Active session — no password required';
+        help.textContent = 'This database already has an active login session.';
+        rememberWrap.style.display = 'none';
+        return;
+      }
+
+      pwd.placeholder = 'Enter password to unlock (full access)';
+      rememberWrap.style.display = 'block';
+      if (canRead) {
+        help.textContent = 'Read-only is allowed without a password. Enter the password to gain full access (create/edit/delete).';
+      } else {
+        help.textContent = 'This database is password protected. Enter the password to open it.';
+      }
+    }
+
+    if (sel) {
+      sel.addEventListener('change', () => applyState(sel.value));
+      applyState(sel.value);
+    }
+  })();
+</script>
+
+{% endblock %}

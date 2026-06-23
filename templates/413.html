@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Upload too large{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Upload too large</h2>
+  <p>The upload exceeded the maximum request size{% if max_mb %} ({{ max_mb }} MB){% endif %}.</p>
+  <p>Try uploading fewer files at once, or smaller files.</p>
+  <p><a class="btn primary" href="{{ request.referrer or url_for('index') }}">Go back</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card vn-app-shell">
+  <div class="vn-app-header">
+    <div>
+      <h2>{{ app_info.title }}</h2>
+      <div class="muted">{{ app_info.description }}</div>
+    </div>
+    <a class="btn" href="{{ url_for('content') }}">Back to Content</a>
+  </div>
+
+  <div class="vn-app-layout">
+    <main class="vn-game-main">
+      <div class="vn-game-stats">
+        <span>Score <strong id="vnGameScore">0</strong></span>
+        <span id="vnGameExtra"></span>
+        <label class="vn-difficulty-label">Difficulty
+          <select class="input" id="vnGameDifficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <button class="btn" type="button" id="vnGameRestart">New game</button>
+      </div>
+      <div class="vn-game-stage">
+        <canvas id="vnGameCanvas" aria-label="{{ app_info.title }} game"></canvas>
+      </div>
+      <div id="vnGameMessage" class="vn-game-message" aria-live="polite"></div>
+      {% if app_id == 'tetris' %}
+        <div class="vn-game-controls" aria-label="Tetris controls">
+          <button type="button" data-game-action="left">←</button>
+          <button type="button" data-game-action="rotate">↻</button>
+          <button type="button" data-game-action="right">→</button>
+          <button type="button" data-game-action="down">↓</button>
+          <button type="button" data-game-action="drop">Drop</button>
+        </div>
+        <div class="help">Keyboard: arrows to move, Up to rotate, Space to drop.</div>
+      {% elif app_id == 'jewels' %}
+        <div class="help">Swap adjacent orbs to match three. Match four or more to create a prism orb; swap it with a color to clear every orb of that color.</div>
+      {% elif app_id == 'memory' %}
+        <div class="help">Flip two tiles at a time. Matching pairs stay revealed; find every pair to finish the game.</div>
+      {% elif app_id == 'minesweeper' %}
+        <div class="help">Click to reveal a tile. Right-click or long-press to place a flag. Reveal every safe tile to win.</div>
+      {% elif app_id == 'breakout' %}
+        <div class="help">Move with Left/Right or your pointer. Clear 10 levels and catch falling power-ups: wide paddle, slow ball, and extra life.</div>
+      {% else %}
+        <div class="help">Watch the illuminated sequence, then repeat it. One mistake ends the game.</div>
+      {% endif %}
+    </main>
+
+    <aside class="vn-high-scores" aria-label="High scores">
+      <h3>Top 10 High Scores <small id="vnHighScoreDifficulty">Medium</small></h3>
+      <ol id="vnHighScoreList"></ol>
+      {% if can_clear_scores %}
+        <button class="btn danger vn-clear-scores" type="button" id="vnClearHighScores">Clear scoreboard</button>
+      {% endif %}
+      <form id="vnHighScoreForm" hidden>
+        <label for="vnHighScoreInitials">Add initials</label>
+        <div class="vn-initials-row">
+          <input class="input" id="vnHighScoreInitials" maxlength="3" autocomplete="off" placeholder="AAA" aria-label="Three initials">
+          <button class="btn primary" type="submit">Save</button>
+        </div>
+        <div class="help">Available when the game ends. Scores save on this device.</div>
+      </form>
+    </aside>
+  </div>
+</div>
+<script>window.VORTNOTES_CONTENT_APP = {{ app_id|tojson }};</script>
+<script src="{{ url_for('static', filename='content_apps.js') }}"></script>
+<style>
+  .vn-app-shell{max-width:1060px;margin:0 auto}.vn-app-header,.vn-game-stats{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.vn-app-header h2{margin:0}.vn-app-layout{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:20px;align-items:start;margin-top:16px}.vn-game-main{min-width:0}.vn-game-stats{margin-bottom:14px}.vn-game-stats>span{padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.07)}.vn-difficulty-label{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700}.vn-difficulty-label select{width:auto;padding:7px 28px 7px 9px}.vn-game-stage{display:flex;justify-content:center;overflow:auto}.vn-game-stage canvas{display:block;max-width:100%;height:auto;border:1px solid rgba(255,255,255,.18);border-radius:12px;background:#090b13;touch-action:none}.vn-memory-grid{display:grid;gap:10px;width:min(100%,620px);perspective:1000px}.vn-memory-card{position:relative;aspect-ratio:1;border:0;padding:0;background:transparent;cursor:pointer;transform-style:preserve-3d;transition:transform .42s cubic-bezier(.2,.75,.25,1)}.vn-memory-card.is-flipped,.vn-memory-card.is-matched{transform:rotateY(180deg)}.vn-memory-card.is-matched{cursor:default}.vn-memory-face{position:absolute;inset:0;display:grid;place-items:center;border-radius:12px;backface-visibility:hidden;border:1px solid rgba(255,255,255,.22);box-shadow:0 8px 20px rgba(0,0,0,.22)}.vn-memory-front{background:linear-gradient(145deg,#25314d,#111728);font-size:28px;color:rgba(255,255,255,.55)}.vn-memory-back{transform:rotateY(180deg);background:radial-gradient(circle at 35% 25%,rgba(255,255,255,.4),transparent 22%),linear-gradient(145deg,#865cff,#2b8edb);font-size:clamp(24px,5vw,42px)}.vn-memory-card.is-matched .vn-memory-back{box-shadow:0 0 0 2px rgba(91,230,166,.8),0 0 24px rgba(91,230,166,.35)}.vn-game-message{text-align:center;min-height:28px;padding:8px;font-weight:700}.vn-game-controls{display:grid;grid-template-columns:repeat(5,minmax(52px,1fr));gap:8px;max-width:520px;margin:8px auto}.vn-game-controls button{min-height:48px;border:1px solid rgba(255,255,255,.18);border-radius:10px;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer}.vn-game-controls button:active{transform:translateY(1px);background:rgba(255,255,255,.16)}.vn-high-scores{position:sticky;top:14px;padding:14px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(255,255,255,.045)}.vn-high-scores h3{margin:0 0 10px}.vn-high-scores h3 small{display:block;margin-top:3px;color:var(--muted,#aaa);font-size:12px;font-weight:600}.vn-high-scores ol{list-style:none;margin:0 0 18px;padding:0;counter-reset:scores}.vn-high-scores li{display:grid;grid-template-columns:24px 1fr auto;gap:6px;padding:7px 2px;border-bottom:1px solid rgba(255,255,255,.08);font-variant-numeric:tabular-nums}.vn-high-scores li::before{counter-increment:scores;content:counter(scores) ".";color:var(--muted,#aaa)}.vn-high-scores .vn-empty-score{display:block;color:var(--muted,#aaa);border:0}.vn-high-scores .vn-empty-score::before{display:none}.vn-clear-scores{width:100%;margin:-6px 0 16px}.vn-high-scores label{display:block;margin-bottom:6px;font-size:13px;font-weight:700}.vn-initials-row{display:flex;gap:6px}.vn-initials-row input{text-transform:uppercase;min-width:0;width:88px;text-align:center;letter-spacing:.18em;font-weight:800}.vn-initials-row button{flex:1}@media(max-width:760px){.vn-app-layout{grid-template-columns:1fr}.vn-high-scores{position:static}.vn-game-controls{grid-template-columns:repeat(3,1fr)}.vn-memory-grid{gap:7px}}
+  .vn-mines-grid{display:grid;gap:2px;width:min(100%,640px);padding:5px;border-radius:10px;background:#0c1120;user-select:none}.vn-mine-cell{aspect-ratio:1;min-width:0;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:linear-gradient(145deg,#354260,#1b2439);color:#fff;font-weight:900;font-size:clamp(11px,2.5vw,20px);cursor:pointer}.vn-mine-cell.is-open{background:#121827;border-color:rgba(255,255,255,.06);cursor:default}.vn-mine-cell.is-mine{background:#9d2941}.vn-mine-cell.is-flagged{color:#ffd84a}.vn-number-1{color:#56b4e9}.vn-number-2{color:#5bdfa5}.vn-number-3{color:#ff7474}.vn-number-4{color:#b487ff}.vn-number-5{color:#ff9f43}.vn-number-6{color:#45d6d6}.vn-simon-board{display:grid;grid-template-columns:repeat(2,minmax(110px,220px));gap:12px;width:min(100%,460px)}.vn-simon-board.six{grid-template-columns:repeat(3,minmax(80px,150px))}.vn-simon-pad{aspect-ratio:1;border:2px solid rgba(255,255,255,.35);border-radius:22px;opacity:.48;cursor:pointer;transition:transform .09s ease,opacity .09s ease,filter .09s ease}.vn-simon-pad.is-lit{opacity:1;filter:brightness(1.65) saturate(1.2);transform:scale(.96);box-shadow:0 0 28px currentColor}.vn-simon-pad:disabled{cursor:default}@media(max-width:520px){.vn-simon-board{grid-template-columns:repeat(2,minmax(90px,1fr))}.vn-simon-board.six{grid-template-columns:repeat(3,minmax(64px,1fr))}}
+</style>
+{% endblock %}

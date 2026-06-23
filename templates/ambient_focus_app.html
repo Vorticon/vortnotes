@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card vn-focus-shell">
+  <div class="vn-focus-header">
+    <div>
+      <h2>Ambient Focus</h2>
+      <div class="muted">A calm timer with generated soundscapes—no external audio required.</div>
+    </div>
+    <a class="btn" href="{{ url_for('content') }}">Back to Content</a>
+  </div>
+
+  <div class="vn-focus-layout">
+    <main class="vn-focus-main">
+      <div class="vn-focus-orb" id="vnFocusOrb">
+        <div class="vn-focus-orb-inner">
+          <div id="vnFocusTime" class="vn-focus-time">25:00</div>
+          <div id="vnFocusState">Ready</div>
+        </div>
+      </div>
+      <div class="vn-focus-controls">
+        <button class="btn primary" type="button" id="vnFocusStart">Start</button>
+        <button class="btn" type="button" id="vnFocusReset">Reset</button>
+      </div>
+      <div id="vnFocusStatus" class="vn-focus-status" aria-live="polite"></div>
+    </main>
+
+    <aside class="vn-focus-settings">
+      <h3>Timer</h3>
+      <div class="vn-focus-presets">
+        <button type="button" data-focus-minutes="25">Focus 25</button>
+        <button type="button" data-focus-minutes="50">Deep 50</button>
+        <button type="button" data-focus-minutes="5">Break 5</button>
+      </div>
+      <label>Custom minutes
+        <input class="input" id="vnFocusMinutes" type="number" min="1" max="180" value="25">
+      </label>
+      <h3>Soundscape</h3>
+      <label>Ambient sound
+        <select class="input" id="vnFocusSound">
+          <option value="rain">Soft Rain</option>
+          <option value="ocean">Ocean</option>
+          <option value="brown">Brown Noise</option>
+          <option value="pink">Pink Noise</option>
+          <option value="fireplace">Fireplace</option>
+          <option value="thunder">Thunderstorm</option>
+          <option value="forest">Forest</option>
+          <option value="coffee">Coffee Shop</option>
+          <option value="spaceship">Spaceship Hum</option>
+          <option value="vinyl">Vinyl Crackle</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <label>Volume
+        <input id="vnFocusVolume" type="range" min="0" max="100" value="35">
+      </label>
+      <div class="vn-focus-sessions">Completed sessions <strong id="vnFocusSessions">0</strong></div>
+    </aside>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='ambient_focus.js') }}"></script>
+<style>
+  .vn-focus-shell{max-width:920px;margin:0 auto}.vn-focus-header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.vn-focus-header h2{margin:0}.vn-focus-layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:28px;align-items:center;margin-top:24px}.vn-focus-main{text-align:center}.vn-focus-orb{--progress:0deg;width:min(68vw,390px);aspect-ratio:1;margin:0 auto;padding:9px;border-radius:50%;background:conic-gradient(#7a9cff var(--progress),rgba(255,255,255,.09) 0);box-shadow:0 0 70px rgba(82,120,230,.2);transition:background .3s linear}.vn-focus-orb-inner{height:100%;display:grid;place-content:center;border-radius:50%;background:radial-gradient(circle at 40% 30%,#293d68,#111827 70%);box-shadow:inset 0 0 45px rgba(115,160,255,.18)}.vn-focus-time{font-size:clamp(54px,11vw,92px);font-weight:800;letter-spacing:-.055em;font-variant-numeric:tabular-nums}.vn-focus-controls{display:flex;justify-content:center;gap:10px;margin-top:18px}.vn-focus-controls button{min-width:110px}.vn-focus-status{min-height:28px;padding-top:9px;color:var(--muted,#aaa)}.vn-focus-settings{padding:17px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.04)}.vn-focus-settings h3{margin:0 0 10px}.vn-focus-settings h3:not(:first-child){margin-top:22px}.vn-focus-settings label{display:grid;gap:6px;margin-top:12px;font-size:13px;font-weight:700}.vn-focus-settings input[type=range]{width:100%;accent-color:#829cff}.vn-focus-presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.vn-focus-presets button{padding:8px 4px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:rgba(255,255,255,.06);color:inherit;cursor:pointer}.vn-focus-presets button:hover{background:rgba(255,255,255,.12)}.vn-focus-sessions{display:flex;justify-content:space-between;margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}@media(max-width:720px){.vn-focus-layout{grid-template-columns:1fr}.vn-focus-settings{max-width:480px;width:100%;margin:0 auto}}
+</style>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:520px; margin: 0 auto;">
+  <h2 style="margin-top:0; text-align:center;">Unlock Database</h2>
+  <div class="muted" style="text-align:center; margin-bottom:12px;">
+    Select a database to unlock.
+  </div>
+
+  {% if error %}
+    <div class="pill danger" style="justify-content:center;">{{ error }}</div>
+    <div style="height:12px;"></div>
+  {% endif %}
+
+  <form method="get" action="{{ url_for('db_unlock') }}" style="margin-bottom:12px;">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <div class="label">Database</div>
+    <select class="input" name="name" onchange="this.form.submit()">
+      {% for db in dbs %}
+        <option value="{{ db }}" {% if db == db_name %}selected{% endif %}>{{ db }}</option>
+      {% endfor %}
+    </select>
+    <noscript>
+      <div style="height:10px;"></div>
+      <button class="btn" type="submit">Select</button>
+    </noscript>
+  </form>
+
+  <form method="post" action="{{ url_for('db_unlock') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="name" value="{{ db_name }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <input class="input" type="password" name="password" placeholder="Password" autocomplete="current-password" required>
+    <div style="height:10px;"></div>
+    <label class="muted" style="display:flex; gap:8px; justify-content:center; align-items:center;">
+      <input type="checkbox" name="remember" value="1">
+      Remember access to all databases until logout
+    </label>
+
+    <div style="display:flex; justify-content:center; margin-top:12px;">
+      <div class="seg-group flat">
+        <button class="btn" type="submit">Unlock</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

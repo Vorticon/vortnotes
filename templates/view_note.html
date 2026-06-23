@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="note-header">
+    <div>
+      <div class="note-title-line">
+        <h2 class="note-title">{{ (note.title or note.description) }}</h2>
+        <div class="note-meta-inline">
+          {% set ns = namespace(any=false) %}
+          {% for t in (note.tag or '').split(',') %}
+            {% set tt = t.strip() %}
+            {% if tt %}
+              {% set ns.any = true %}
+              <span class="badge">{{ tt }}</span>
+            {% endif %}
+          {% endfor %}
+          {% if not ns.any %}
+            <span class="muted">No tag</span>
+          {% endif %}
+          <span class="muted">•</span>
+          <span class="muted">{{ note.created_at|fmt_dt }}</span>
+        </div>
+      </div>
+    </div>
+
+    {% if can_edit %}
+      <div class="toolbar">
+        <div class="seg-group flat">
+          <form method="post" action="{{ url_for('pin_note', note_id=note.id) }}" style="display:flex; margin:0;" onsubmit="return true;">
+            {{ csrf_field() }}
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn" type="submit" title="{{ 'Unpin note' if (note.pinned|default(0)) else 'Pin note' }}">
+              {{ 'Unpin' if (note.pinned|default(0)) else 'Pin' }}
+            </button>
+          </form>
+          <a class="btn" href="{{ url_for('edit_note', note_id=note.id) }}">Edit</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div style="max-width: 900px; margin: 0 auto;">
+    <div class="note-body ql-snow"><div class="ql-editor">{{ note.content_html | safe }}</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3 class="attachments-title">Attachments</h3>
+
+  {% if attachments and attachments|length > 0 %}
+    <div class="links-desktop-grid vn-note-attachment-grid">
+      {% for a in attachments %}
+        <div class="link-tile">
+        <a class="attach-link" href="{{upload_prefix}}/{{a.stored_name}}" target="_blank" draggable="false" data-title="{{a.original_name | e}}">
+          <div class="attach-thumb link-thumb" title="{{a.original_name | e}}">
+            {% if a.icon_stored_name %}
+              <img src="{{upload_prefix}}/{{a.icon_stored_name}}" alt="{{a.original_name | e}}">
+            {% elif a.is_image %}
+              <img src="{{upload_prefix}}/{{a.stored_name}}" alt="{{a.original_name | e}}">
+            {% elif a.is_video %}
+              <div class="attach-fileicon" aria-hidden="true">🎬</div>
+            {% elif a.is_audio %}
+              <div class="attach-fileicon" aria-hidden="true">🎵</div>
+            {% else %}
+              <div class="attach-fileicon">📎</div>
+            {% endif %}
+          </div>
+          <div class="attach-name">{{a.original_name}}</div>
+        </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="muted" style="text-align:center;">No attachments.</div>
+  {% endif %}
+</div>
+
+{# Reuse the Content-page media modal for note attachments (audio/video). #}
+<div id="contentViewBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="contentViewTitle" onclick="vnCloseContentMedia(event)">
+      <div id="contentViewModal" class="vn-modal vn-media-modal" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div id="contentViewTitle" class="vn-modal-title">Media</div>
+<button type="button" class="vn-modal-close" id="contentViewCloseBtn" aria-label="Close" onclick="vnCloseContentMedia()">×</button>
+        </div>
+        <div class="vn-modal-body" style="flex:1; overflow:hidden;">
+          <div id="contentViewBody" class="vn-media-view"></div>
+        </div>
+      </div>
+    </div>
+
+</div>
+
+<script>
+  (function(){
+    function guessMimeFromUrl(url){
+      try{
+        const clean = (url || '').split('?')[0].split('#')[0];
+        const ext = (clean.split('.').pop() || '').toLowerCase();
+        const image = new Set(['png','jpg','jpeg','gif','webp','bmp','svg']);
+        const audio = new Set(['mp3','wav','ogg','oga','m4a','aac','flac']);
+        const video = new Set(['mp4','webm','ogv','mov','m4v','mkv']);
+        if (image.has(ext)) return (ext === 'jpg') ? 'image/jpeg' : ('image/' + ext);
+        if (audio.has(ext)) return 'audio/' + ext;
+        if (video.has(ext)) return 'video/' + ext;
+      }catch(e){}
+      return '';
+    }
+
+    function fitVideoModal(video, modal, body){
+      if (!video || !modal || !body) return;
+      function applyFit(){
+        const vw = video.videoWidth || 9;
+        const vh = video.videoHeight || 16;
+        const aspect = Math.max(0.05, vw / vh);
+        const maxW = Math.min(window.innerWidth * 0.92, 1100);
+        const maxH = Math.max(180, window.innerHeight * 0.92 - 72);
+        let w = maxW;
+        let h = w / aspect;
+        if (h > maxH){
+          h = maxH;
+          w = h * aspect;
+        }
+        modal.style.setProperty('--vn-media-w', Math.round(w) + 'px');
+      }
+      video.addEventListener('loadedmetadata', applyFit, { once: true });
+      window.addEventListener('resize', applyFit, { passive: true });
+      if (video.readyState >= 1) applyFit();
+      applyFit();
+    }
+
+    window.vnOpenContentMedia = window.vnOpenContentMedia || function(url, mime, title){
+      const bd = document.getElementById('contentViewBackdrop');
+      const body = document.getElementById('contentViewBody');
+      const tt = document.getElementById('contentViewTitle');
+      const modal = document.getElementById('contentViewModal');
+      if (!bd || !body) return false;
+      mime = ((mime || '') + '').toLowerCase();
+      const t = title || 'Media';
+      if (tt) tt.textContent = t;
+      if (modal) modal.className = 'vn-modal vn-media-modal';
+      body.innerHTML = '';
+
+      if (mime.startsWith('image/')){
+        if (modal) modal.classList.add('vn-media-image');
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = t;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.height = 'auto';
+        img.style.display = 'block';
+        img.style.margin = '0 auto';
+        body.appendChild(img);
+      } else if (mime.startsWith('video/')){
+        if (modal) modal.classList.add('vn-media-video');
+        const v = document.createElement('video');
+        v.controls = true;
+        v.src = url;
+        v.autoplay = true;
+        v.playsInline = true;
+        body.appendChild(v);
+        fitVideoModal(v, modal, body);
+      } else if (mime.startsWith('audio/')){
+        if (modal) modal.classList.add('vn-media-audio');
+        const a = document.createElement('audio');
+        a.controls = true;
+        a.src = url;
+        a.autoplay = true;
+        a.style.width = '100%';
+        a.style.maxWidth = '100%';
+        body.appendChild(a);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Open file';
+        body.appendChild(a);
+      }
+
+      bd.classList.remove('hidden');
+      try{ bd.querySelector('video, audio')?.play?.(); }catch(e){}
+      return false;
+    };
+
+    window.vnCloseContentMedia = window.vnCloseContentMedia || function(ev){
+      if (ev){
+        try{ if (ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+      }
+      const bd = document.getElementById('contentViewBackdrop');
+      const body = document.getElementById('contentViewBody');
+      if (bd) bd.classList.add('hidden');
+      if (body) body.innerHTML = '';
+    };
+
+    // Intercept attachment clicks for image/audio/video and open in modal.
+    document.addEventListener('click', function(e){
+      const a = e.target && e.target.closest ? e.target.closest('a.attach-link') : null;
+      if (!a) return;
+      const href = a.getAttribute('href') || '';
+      const mime = guessMimeFromUrl(href);
+      if (!(mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/'))) return;
+      e.preventDefault();
+      const title = a.getAttribute('data-title') || 'Media';
+      window.vnOpenContentMedia(href, mime, title);
+    }, {passive:false});
+  })();
+</script>
+
+{% endblock %}

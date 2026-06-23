@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="text-align:center;">
+  <h2 style="margin: 6px 0 0;">Database Locked</h2>
+  <div class="muted" style="margin-top:10px;">
+    The selected database is password protected. A password prompt should appear.
+  </div>
+  <div class="muted" style="margin-top:6px;">
+    If you cancelled the prompt, refresh the page to try again.
+  </div>
+
+  <div style="margin-top:16px; display:flex; justify-content:center;">
+    <form method="post" action="{{ url_for('select_db_from_main') }}" style="display:flex; gap:8px; align-items:flex-end;">
+      {{ csrf_field() }}
+      <div>
+        <div class="label">Database</div>
+        <select class="input" name="name" onchange="this.form.submit()" style="min-width: 220px;">
+          {% for db in dbs %}
+            <option value="{{ db }}" {% if db == selected_db %}selected{% endif %}>{{ db }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <noscript><button class="btn" type="submit">Switch</button></noscript>
+    </form>
+  </div>
+</div>
+{% endblock %}

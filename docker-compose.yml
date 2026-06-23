@@ -1,0 +1,20 @@
+services:
+  vortnotes:
+    image: vorticon/vortnotes:1.0.7
+    build:
+      context: .
+      args:
+        VORTNOTES_VERSION: 1.0.7
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      NOTES_DATA_DIR: /data
+      # For direct HTTPS, mount certs below and uncomment all four lines:
+      # VORTNOTES_TLS_CERT_FILE: /certs/fullchain.pem
+      # VORTNOTES_TLS_KEY_FILE: /certs/privkey.pem
+      # VORTNOTES_FORCE_SECURE_COOKIES: "1"
+      # VORTNOTES_TRUST_PROXY_HEADERS: "1" # use only behind one trusted proxy
+    volumes:
+      - ./vortnotes-data:/data
+      # - ./certs:/certs:ro

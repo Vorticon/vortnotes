@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:520px; margin: 0 auto;">
+  <h2 style="margin-top:0; text-align:center;">{% if setup_required %}Set Admin Password{% else %}DB Admin{% endif %}</h2>
+
+  {% if error %}
+    <div class="pill danger" style="justify-content:center;">{{ error }}</div>
+    <div style="height:12px;"></div>
+  {% endif %}
+
+  {% if setup_required %}
+    <div class="muted" style="text-align:center; margin-bottom:12px;">
+      VortNotes requires an admin password before Database Management and configuration tools can be used.
+    </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('db_admin_login') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    {% if setup_required %}
+      <input class="input" type="password" name="password" placeholder="Set admin password" autocomplete="new-password" required>
+      <input class="input" type="password" name="password_confirm" placeholder="Confirm admin password" autocomplete="new-password" required style="margin-top:8px;">
+    {% else %}
+      <input class="input" type="password" name="password" placeholder="Admin password" autocomplete="current-password" required>
+      <div style="height:10px;"></div>
+      <label class="muted" style="display:flex; gap:8px; justify-content:center; align-items:center;">
+        <input type="checkbox" name="remember" value="1">
+        Remember me
+      </label>
+    {% endif %}
+
+    <div style="display:flex; justify-content:center; margin-top:12px;">
+      <div class="seg-group flat">
+        <button class="btn" type="submit">{% if setup_required %}Set Password{% else %}Login{% endif %}</button>
+        <a class="btn" href="{{ url_for('index') }}">Back</a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

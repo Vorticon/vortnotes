@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<Container>
+  <Name>Vortnotes</Name>
+  <Repository>vorticon/vortnotes:latest</Repository>
+  <Registry>https://hub.docker.com/r/vorticon/vortnotes</Registry>
+  <Network>bridge</Network>
+  <ExtraParams>--user 99:100</ExtraParams>
+  <Privileged>false</Privileged>
+  <Support>https://hub.docker.com/r/vorticon/vortnotes</Support>
+  <Project>https://hub.docker.com/r/vorticon/vortnotes</Project>
+  <Overview>A simple Flask + SQLite notes app with attachments and multi-DB support.</Overview>
+  <Category>Productivity</Category>
+  <WebUI>http://[IP]:[PORT:9999]/</WebUI>
+
+  <Config Name="Web Port" Target="8000" Default="9999" Mode="tcp" Description="Host port for the web UI" Type="Port" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/vortnotes" Mode="rw" Description="Persistent app data root. Stores SQLite DBs, uploads, config, logs, and the Flask secret key." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="TLS Certificates" Target="/certs" Default="" Mode="ro" Description="Optional certificate folder for direct HTTPS. Mount read-only, then enable HTTPS in Settings > Config." Type="Path" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="PORT" Target="PORT" Default="8000" Mode="" Description="Container listen port (leave 8000)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NOTES_DATA_DIR" Target="NOTES_DATA_DIR" Default="/data" Mode="" Description="Container persistent data directory (leave /data)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VORTNOTES_MIGRATE_LEGACY_APP_DATA" Target="VORTNOTES_MIGRATE_LEGACY_APP_DATA" Default="0" Mode="" Description="Set to 1 for one startup to copy legacy /app/dbs, /app/uploads, /app/config/config.json, backups, logs, and secret key into NOTES_DATA_DIR. Source files are left in place." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Admin Password" Target="VORTNOTES_ADMIN_PASSWORD" Default="" Mode="" Description="Optional first-run admin password bootstrap. Used only when no admin password is already configured." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="WEB_CONCURRENCY" Target="WEB_CONCURRENCY" Default="2" Mode="" Description="Gunicorn workers" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="THREADS" Target="THREADS" Default="2" Mode="" Description="Gunicorn threads per worker" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TIMEOUT" Target="TIMEOUT" Default="120" Mode="" Description="Gunicorn timeout seconds" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Trust Proxy Headers" Target="VORTNOTES_TRUST_PROXY_HEADERS" Default="0" Mode="" Description="Set to 1 only when one trusted HTTPS reverse proxy connects to VortNotes." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Secure Cookies" Target="VORTNOTES_FORCE_SECURE_COOKIES" Default="0" Mode="" Description="Set to 1 when the public URL uses HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TLS Certificate" Target="VORTNOTES_TLS_CERT_FILE" Default="" Mode="" Description="Optional certificate path for direct HTTPS; set with TLS Private Key." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TLS Private Key" Target="VORTNOTES_TLS_KEY_FILE" Default="" Mode="" Description="Optional private-key path for direct HTTPS; mount it read-only." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

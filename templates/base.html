@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>Notes</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/quill/quill.snow.css') }}">
+
+  {% if db_theme_accent or db_theme_accent2 or db_theme_bg_url or db_theme_bg_overlay %}
+  <style>
+    :root{
+      {% if db_theme_accent %}--accent: {{ db_theme_accent }}; --bg: color-mix(in srgb, #0b0f19 86%, var(--accent) 14%);{% endif %}
+      {% if db_theme_accent2 %}--accent2: {{ db_theme_accent2 }};{% endif %}
+      {% if db_theme_bg_overlay %}--bg-overlay: {{ db_theme_bg_overlay }};{% endif %}
+      {% if db_theme_bg_url %}--bg-image: url('{{ db_theme_bg_url }}');{% endif %}
+    }
+  </style>
+  {% endif %}
+
+</head>
+<body data-btn-hover-outline="{{ 1 if db_btn_hover_outline else 0 }}">
+  <div class="container">
+<div class="nav">
+      <div class="seg-group">
+        <button class="btn" type="button" onclick="window.location.href='{{ url_for('index') }}'">Notes</button>
+        <button class="btn" type="button" onclick="window.location.href='{{ url_for('content') }}'">Content</button><button class="btn" type="button" onclick="window.location.href='{{ url_for('settings_page') }}'">Settings</button>
+      </div>
+    </div>
+
+    {% block content %}{% endblock %}
+  </div>
+
+  <div class="watermark" aria-hidden="true">Vortnotes</div>
+
+  {#
+    NOTE:
+    - DB unlock is handled via the /db/unlock page (no JS popup).
+    - Database Management is protected via /db/admin-login (no JS popup).
+  #}
+
+  <script>
+    // Global keyboard shortcuts
+    // - "n": new note
+    // - "/": focus filter on Notes page
+    document.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented) return;
+      const t = e.target;
+      const tag = (t && t.tagName) ? t.tagName.toLowerCase() : '';
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable);
+      if (isTyping) return;
+
+      if (e.key === 'n' || e.key === 'N'){
+        e.preventDefault();
+        window.location.href = "{{ url_for('new_note') }}";
+        return;
+      }
+      if (e.key === '/'){
+        const ft = document.getElementById('filterText');
+        if (ft){
+          e.preventDefault();
+          ft.focus();
+        }
+      }
+    });
+  </script>
+
+</body>
+</html>
