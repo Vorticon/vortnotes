@@ -23,9 +23,11 @@
         </div>
 
         <div class="muted" style="margin-top:10px;">
-          Mount the certificate folder read-only at <strong>/certs</strong>. Save, restart VortNotes, then reconnect using <strong>https://</strong>.
+          Use your own certificate paths, or generate a unique self-signed certificate for this install.
+          Save, restart VortNotes, then reconnect using <strong>https://</strong>.
           {% if https_cfg.env_override %}<br>HTTPS is controlled by VORTNOTES_TLS_* environment variables, so these controls are read-only.{% endif %}
           {% if https_cfg.enabled and (not https_cfg.cert_exists or not https_cfg.key_exists) %}<br><strong>Warning:</strong> one or both configured files are unavailable.{% endif %}
+          {% if https_cfg.self_signed_exists %}<br>Self-signed certificate is available at <code>{{ https_cfg.self_signed_cert_file }}</code>.{% endif %}
         </div>
 
         {% if not https_cfg.env_override %}
@@ -34,5 +36,18 @@
           </div>
         {% endif %}
       </form>
+
+      {% if not https_cfg.env_override %}
+        <form method="post" action="{{ url_for('settings_https_self_signed') }}" style="margin-top:12px;">
+          {{ csrf_field() }}
+          <div class="row" style="gap:10px; flex-wrap:wrap;">
+            <button class="btn" type="submit">Generate self-signed certificate</button>
+            <span class="muted">
+              Creates a private key and certificate under <code>{{ https_cfg.self_signed_cert_file }}</code>
+              and enables direct HTTPS. Browsers will warn because it is self-signed.
+            </span>
+          </div>
+        </form>
+      {% endif %}
     </div>
 </details>

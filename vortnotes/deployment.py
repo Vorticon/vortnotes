@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from pathlib import Path
+
+SELF_SIGNED_TLS_DIRNAME = "tls"
+SELF_SIGNED_TLS_CERT_NAME = "vortnotes-selfsigned.crt"
+SELF_SIGNED_TLS_KEY_NAME = "vortnotes-selfsigned.key"
 
 
 def truthy_env(name: str) -> bool:
@@ -35,6 +40,86 @@ def direct_https_config(config_path: Path | None = None) -> dict[str, object]:
         "key_file": key,
         "env_override": env_override,
     }
+
+
+def self_signed_tls_paths(data_dir: Path) -> tuple[Path, Path]:
+    """Return the default per-install self-signed TLS certificate paths."""
+    tls_dir = data_dir / "config" / SELF_SIGNED_TLS_DIRNAME
+    return tls_dir / SELF_SIGNED_TLS_CERT_NAME, tls_dir / SELF_SIGNED_TLS_KEY_NAME
+
+
+def generate_self_signed_tls_cert(
+    data_dir: Path,
+    *,
+    common_name: str = "VortNotes Local",
+    days_valid: int = 825,
+    overwrite: bool = False,
+) -> tuple[Path, Path]:
+    """Generate a unique self-signed certificate/key pair for this install.
+
+    The private key is written under NOTES_DATA_DIR, not baked into the image.
+    Browsers will still warn because the certificate is self-signed, but each
+    installation gets its own keypair.
+    """
+    cert_path, key_path = self_signed_tls_paths(data_dir)
+    if not overwrite and cert_path.exists() and key_path.exists():
+        return cert_path, key_path
+
+    from datetime import datetime, timedelta, timezone
+    from ipaddress import ip_address
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    tls_dir = cert_path.parent
+    tls_dir.mkdir(parents=True, exist_ok=True)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+    hostname = socket.gethostname() or "localhost"
+    names = {"localhost", hostname, f"{hostname}.local"}
+    dns_names = sorted(n for n in names if n)
+    ip_addresses = ["127.0.0.1", "::1"]
+
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "VortNotes"),
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+        ]
+    )
+    san_entries = [x509.DNSName(name) for name in dns_names]
+    san_entries.extend(x509.IPAddress(ip_address(value)) for value in ip_addresses)
+
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=max(1, int(days_valid))))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+
+    key_path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+
+    try:
+        os.chmod(key_path, 0o600)
+        os.chmod(cert_path, 0o644)
+    except OSError:
+        pass
+    return cert_path, key_path
 
 
 def tls_context_from_config(config_path: Path | None = None) -> tuple[str, str] | None:

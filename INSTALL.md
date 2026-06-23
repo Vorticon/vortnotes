@@ -77,6 +77,11 @@ VORTNOTES_TLS_KEY_FILE=/certs/privkey.pem
 or open **Settings → Config** in VortNotes, enable direct HTTPS, and enter the
 same in-container paths. Restart the container after changing direct HTTPS.
 
+You can also click **Generate self-signed certificate** in **Settings → Config**
+for a unique per-install certificate stored under `/data/config/tls/`. Restart
+the container, then reconnect with `https://`. Browsers will warn because the
+certificate is self-signed.
+
 ## PC with Docker Desktop
 
 ### Windows PowerShell

@@ -1,7 +1,7 @@
 # Third-party notices
 
 VortNotes includes or depends on the following open-source software. The
-dependency versions distributed in release 1.0.7 are pinned in the requirements
+dependency versions distributed in release 1.0.8 are pinned in the requirements
 files. Full license texts remain available from each upstream project.
 
 | Component | Version | License |
@@ -10,6 +10,9 @@ files. Full license texts remain available from each upstream project.
 | Gunicorn | 22.0.0 | MIT |
 | Bleach | 6.4.0 | Apache-2.0 |
 | tinycss2 | 1.5.1 | BSD-3-Clause |
+| cryptography | 48.0.1 | Apache-2.0 OR BSD-3-Clause |
+| cffi | 2.0.0 | MIT |
+| pycparser | 3.0 | BSD-3-Clause |
 | Blinker's contributors | 1.9.0 | MIT |
 | Click | 8.4.1 | BSD-3-Clause |
 | itsdangerous | 2.2.0 | BSD-3-Clause |

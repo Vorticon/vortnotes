@@ -70,8 +70,10 @@ instructions.
 ## HTTPS
 
 Use a reverse proxy for public deployments, or enable direct HTTPS in
-**Settings → Config** after mounting certificate files read-only into the
-container. Environment variables are also supported:
+**Settings → Config**. VortNotes can generate a unique self-signed certificate
+under `/data/config/tls/` for local/home installs, or you can mount certificate
+files read-only and configure them manually. Environment variables are also
+supported:
 
 ```text
 VORTNOTES_TLS_CERT_FILE=/certs/fullchain.pem

@@ -11,6 +11,7 @@ REQUIRED_IGNORES = {
     ".env.*",
     ".secret_key",
     "*.db",
+    "*.crt",
     "*.key",
     "*.pem",
     "*.zip",

@@ -2,6 +2,13 @@
 
 This project follows Semantic Versioning.
 
+## 1.0.8 - 2026-06-22
+
+- Added an admin Settings button to generate a unique per-install self-signed
+  HTTPS certificate and private key under `/data/config/tls/`.
+- Generated self-signed certificates automatically enable direct HTTPS after
+  restart without requiring a bundled/shared private key.
+
 ## 1.0.7 - 2026-06-22
 
 - Rebuilt the Docker runtime on Alpine Linux to reduce inherited base-image

@@ -24,7 +24,7 @@ EXCLUDED_PARTS = {
     "uploads",
 }
 EXCLUDED_NAMES = {".env", ".secret_key", "notes.db"}
-EXCLUDED_SUFFIXES = {".db", ".key", ".log", ".pem", ".pyc", ".zip"}
+EXCLUDED_SUFFIXES = {".crt", ".db", ".key", ".log", ".pem", ".pyc", ".zip"}
 
 
 def included_files() -> list[Path]:

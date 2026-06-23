@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from vortnotes.deployment import direct_https_config, tls_context_from_config, tls_context_from_env
+from vortnotes.deployment import (
+    direct_https_config,
+    generate_self_signed_tls_cert,
+    self_signed_tls_paths,
+    tls_context_from_config,
+    tls_context_from_env,
+)
 from vortnotes.settings import CONFIG_PATH
 
 
@@ -59,6 +65,19 @@ def test_environment_https_overrides_persisted_config(monkeypatch, tmp_path: Pat
     assert direct_https_config(config)["env_override"] is True
 
 
+def test_generate_self_signed_tls_cert_creates_unique_readable_pair(tmp_path: Path):
+    cert, key = generate_self_signed_tls_cert(tmp_path)
+    expected_cert, expected_key = self_signed_tls_paths(tmp_path)
+
+    assert cert == expected_cert
+    assert key == expected_key
+    assert cert.is_file()
+    assert key.is_file()
+    assert cert.read_text(encoding="utf-8").startswith("-----BEGIN CERTIFICATE-----")
+    assert key.read_text(encoding="utf-8").startswith("-----BEGIN RSA PRIVATE KEY-----")
+    assert tls_context_from_config(None) is None
+
+
 def test_admin_can_save_direct_https_configuration(tmp_path: Path):
     from vortnotes import create_app
     from vortnotes.webapp import list_db_files, set_admin_password
@@ -91,3 +110,32 @@ def test_admin_can_save_direct_https_configuration(tmp_path: Path):
     assert b"Enable direct HTTPS" in page.data
     assert page.data.index(b">Config<") < page.data.index(b'id="https-config"') < page.data.index(b">Admin Access<")
     assert page.data.count(b'class="perm-read-toggle"') == len(list_db_files())
+
+
+def test_admin_can_generate_self_signed_https_configuration():
+    from vortnotes import create_app
+    from vortnotes.webapp import set_admin_password
+
+    app = create_app()
+    app.config["TESTING"] = True
+    set_admin_password("test-password")
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["admin_authed"] = True
+        session["_csrf_token"] = "test-token"
+
+    response = client.post("/settings/https/self-signed", data={"csrf_token": "test-token"})
+
+    assert response.status_code == 302
+    saved = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    cert_path = Path(saved["https"]["cert_file"])
+    key_path = Path(saved["https"]["key_file"])
+    assert saved["https"]["enabled"] is True
+    assert cert_path.is_file()
+    assert key_path.is_file()
+    assert cert_path.name == "vortnotes-selfsigned.crt"
+    assert key_path.name == "vortnotes-selfsigned.key"
+
+    page = client.get("/settings")
+    assert b"Generate self-signed certificate" in page.data
+    assert b"Self-signed certificate is available" in page.data

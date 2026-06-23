@@ -20,6 +20,7 @@ logs/
 .secret_key
 *.zip
 *.pem
+*.crt
 *.key
 release/
 .git/

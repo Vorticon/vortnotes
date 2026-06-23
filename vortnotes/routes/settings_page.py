@@ -10,7 +10,7 @@ from pathlib import Path
 
 from flask import redirect, render_template, request, url_for
 
-from ..deployment import direct_https_config
+from ..deployment import direct_https_config, generate_self_signed_tls_cert, self_signed_tls_paths
 from ..settings import DATA_DIR, DB_DIR, UPLOAD_DIR
 
 
@@ -176,14 +176,18 @@ def register_settings_routes(app) -> None:
 
     def _https_settings() -> dict:
         effective = direct_https_config(DATA_DIR / "config" / "config.json")
-        cert = str(effective.get("cert_file") or "/certs/fullchain.pem")
-        key = str(effective.get("key_file") or "/certs/privkey.pem")
+        default_cert, default_key = self_signed_tls_paths(DATA_DIR)
+        cert = str(effective.get("cert_file") or default_cert)
+        key = str(effective.get("key_file") or default_key)
         return {
             **effective,
             "cert_file": cert,
             "key_file": key,
             "cert_exists": bool(cert and Path(cert).is_file()),
             "key_exists": bool(key and Path(key).is_file()),
+            "self_signed_cert_file": str(default_cert),
+            "self_signed_key_file": str(default_key),
+            "self_signed_exists": default_cert.is_file() and default_key.is_file(),
         }
 
     def _db_select_context() -> dict:
@@ -366,6 +370,28 @@ def register_settings_routes(app) -> None:
         cfg["https"] = {"enabled": enabled, "cert_file": cert_file, "key_file": key_file}
         save_config(cfg)
         return redirect(url_for("settings_page", notice="HTTPS configuration saved. Restart VortNotes to apply it."))
+
+    @app.route("/settings/https/self-signed", methods=["POST"], endpoint="settings_https_self_signed")
+    def settings_https_self_signed():
+        if not admin_password_is_set() or not _is_admin_authed():
+            return redirect(url_for("db_admin_login", next=url_for("settings_page")))
+        if os.getenv("VORTNOTES_TLS_CERT_FILE", "").strip() or os.getenv("VORTNOTES_TLS_KEY_FILE", "").strip():
+            return redirect(url_for("settings_page", error="HTTPS is controlled by environment variables."))
+
+        try:
+            cert_path, key_path = generate_self_signed_tls_cert(DATA_DIR, overwrite=True)
+        except Exception:
+            return redirect(url_for("settings_page", error="Self-signed certificate generation failed."))
+
+        cfg = load_config()
+        cfg["https"] = {"enabled": True, "cert_file": str(cert_path), "key_file": str(key_path)}
+        save_config(cfg)
+        return redirect(
+            url_for(
+                "settings_page",
+                notice="Self-signed HTTPS certificate generated. Restart VortNotes, then reconnect with https://.",
+            )
+        )
 
     @app.route("/settings")
     def settings_page():

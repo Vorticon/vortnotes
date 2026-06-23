@@ -5,7 +5,7 @@ content/media grids, themes, DB ZIP backup/import, and Docker/Unraid support.
 
 ![VortNotes content dashboard](docs/images/vortnotes-content.png)
 
-Current release: **1.0.7**. VortNotes is distributed under the MIT License; see
+Current release: **1.0.8**. VortNotes is distributed under the MIT License; see
 `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
 The public Docker image is multi-architecture:
@@ -163,7 +163,7 @@ docker run -d \
   -e VORTNOTES_TLS_KEY_FILE=/certs/privkey.pem \
   -v ~/vortnotes-data:/data \
   -v /path/to/certs:/certs:ro \
-  vorticon/vortnotes:1.0.7
+  vorticon/vortnotes:1.0.8
 ```
 
 Open `https://SERVER-IP:8443`. The certificate must match the hostname used by
@@ -178,6 +178,20 @@ Config**, enable direct HTTPS, and enter the in-container certificate and key
 paths. The certificate folder must already be mounted read-only (normally at
 `/certs`), and the container must be restarted after saving. Environment
 variables override the admin-panel setting.
+
+For local or home-network installs, **Settings → Config** can also generate a
+unique self-signed certificate for the current install. The generated files are
+stored under:
+
+```text
+/data/config/tls/vortnotes-selfsigned.crt
+/data/config/tls/vortnotes-selfsigned.key
+```
+
+The app enables direct HTTPS after generation, but you still need to restart the
+container/app and reconnect with `https://`. Browsers will warn because the
+certificate is self-signed; this is expected. Do not use a shared certificate or
+private key across installs.
 
 The container runs as UID/GID `10001`. Existing bind mounts must be writable by
 that identity, for example `sudo chown -R 10001:10001 ~/vortnotes-data`.
@@ -236,7 +250,8 @@ TIMEOUT=120
 
 For HTTPS on Unraid, prefer its reverse-proxy ecosystem and set
 `VORTNOTES_TRUST_PROXY_HEADERS=1` plus `VORTNOTES_FORCE_SECURE_COOKIES=1`.
-Alternatively, mount a read-only certificates folder and set the two
+Alternatively, generate a unique self-signed certificate from **Settings →
+Config**, or mount a read-only certificates folder and set the two
 `VORTNOTES_TLS_*` variables documented above.
 
 The supplied Unraid template runs as `nobody:users` (`99:100`) so new installs
