@@ -21,11 +21,11 @@ def register_media_routes(app) -> None:
         _is_unlocked,
         _upload_filename_for_db,
         current_upload_dir,
+        db_guest_can,
         ensure_db_initialized,
         get_attachment_max_bytes,
         get_db,
         get_db_password_info,
-        get_db_read_without_password,
         iso_now,
         resolve_db_path,
         touch_db_last_access,
@@ -38,7 +38,7 @@ def register_media_routes(app) -> None:
         ensure_db_initialized(db_path)
         touch_db_last_access(name)
         salt, phash = get_db_password_info(db_path)
-        if salt and phash and not _is_unlocked(name) and not get_db_read_without_password(name):
+        if salt and phash and not _is_unlocked(name) and not db_guest_can(name, "content", "read"):
             return redirect(url_for("settings_page", name=name, next=next_url))
         return None
 
@@ -48,7 +48,7 @@ def register_media_routes(app) -> None:
         ensure_db_initialized(db_path)
         touch_db_last_access(name)
         salt, phash = get_db_password_info(db_path)
-        if salt and phash and not _is_unlocked(name):
+        if salt and phash and not _is_unlocked(name) and not db_guest_can(name, "content", "manage"):
             return redirect(url_for("settings_page", name=name, next=next_url))
         return None
 
@@ -86,7 +86,7 @@ def register_media_routes(app) -> None:
             return gate
 
         name = _current_db_name()
-        can_edit = _is_unlocked(name)
+        can_edit = _is_unlocked(name) or db_guest_can(name, "content", "manage")
         db_path = resolve_db_path(name)
         salt, phash = get_db_password_info(db_path)
         if not (salt and phash):

@@ -35,12 +35,16 @@
     {% endif %}
   </div>
   {% if error_msg is defined and error_msg %}
-    <div class="alert" style="margin-top:12px;">
+    <div class="alert" style="margin-top:12px; text-align:center;">
       {{ error_msg }}
     </div>
   {% endif %}
-  {% if notice_msg is defined and notice_msg %}
-    <div class="pill" style="margin-top:12px; justify-content:center;">{{ notice_msg }}</div>
+  {% if flashed_messages is defined and flashed_messages %}
+    {% for category, message in flashed_messages %}
+      <div class="{% if category == 'error' %}alert{% else %}pill{% endif %}" style="margin-top:12px; justify-content:center; text-align:center;">
+        {{ message }}
+      </div>
+    {% endfor %}
   {% endif %}
 </div>
 
@@ -55,6 +59,13 @@
   {% if select_error %}
     <div class="pill danger" style="justify-content:center;">{{ select_error }}</div>
     <div style="height:12px;"></div>
+  {% endif %}
+
+  {% if admin_authed %}
+    <div class="alert" style="margin-bottom:12px; text-align:center;">
+      Admin is logged in, so all databases are accessible without entering individual database passwords.
+      <button class="link-button" type="button" data-open-modal="configAdminModal">Open Admin Access to log out</button>.
+    </div>
   {% endif %}
 
   <div id="db-help" class="muted" style="text-align:center; margin-bottom:12px;"></div>
@@ -109,7 +120,7 @@
     <div class="muted" style="margin-bottom:12px;">
       Set an admin password to unlock Database Management and configuration tools.
     </div>
-    <a class="btn primary" href="{{ admin_login_url }}">Set Admin Password</a>
+    <button class="btn primary" type="button" data-open-modal="settingsAdminLoginModal">Set Admin Password</button>
   </div>
 {% elif can_admin %}
   {% include "db.html" %}
@@ -119,7 +130,52 @@
     <div class="muted" style="margin-bottom:12px;">
       Database management is protected by the admin password.
     </div>
-    <a class="btn" href="{{ admin_login_url }}">Admin Login</a>
+    <button class="btn" type="button" data-open-modal="settingsAdminLoginModal">Admin Login</button>
+  </div>
+{% endif %}
+
+{% if admin_setup_required or admin_login_required %}
+  <div class="vn-modal-backdrop hidden db-settings-modal" id="settingsAdminLoginModal" role="dialog" aria-modal="true" aria-labelledby="settingsAdminLoginTitle">
+    <div class="vn-modal">
+      <div class="vn-modal-header">
+        <div class="vn-modal-title" id="settingsAdminLoginTitle">{% if admin_setup_required %}Set Admin Password{% else %}Admin Login{% endif %}</div>
+        <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+      </div>
+      <div class="vn-modal-body">
+        {% if admin_setup_required %}
+          <div class="muted" style="margin-bottom:12px; text-align:center;">
+            VortNotes requires an admin password before Database Management and configuration tools can be used.
+          </div>
+        {% else %}
+          <div class="muted" style="margin-bottom:12px; text-align:center;">
+            Enter the admin password to unlock Database Management and configuration tools.
+          </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('db_admin_login') }}">
+          {{ csrf_field() }}
+          <input type="hidden" name="next" value="{{ url_for('settings_page') }}">
+          {% if admin_setup_required %}
+            <label class="label" for="settingsAdminPasswordNew">Admin password</label>
+            <input id="settingsAdminPasswordNew" class="input" type="password" name="password" placeholder="Set admin password" autocomplete="new-password" required>
+            <label class="label" for="settingsAdminPasswordConfirm" style="margin-top:8px;">Confirm password</label>
+            <input id="settingsAdminPasswordConfirm" class="input" type="password" name="password_confirm" placeholder="Confirm admin password" autocomplete="new-password" required>
+          {% else %}
+            <label class="label" for="settingsAdminPassword">Admin password</label>
+            <input id="settingsAdminPassword" class="input" type="password" name="password" placeholder="Admin password" autocomplete="current-password" required>
+            <label class="muted" style="display:flex; gap:8px; justify-content:center; align-items:center; margin-top:10px;">
+              <input type="checkbox" name="remember" value="1">
+              Remember me
+            </label>
+          {% endif %}
+
+          <div class="vn-modal-actions">
+            <button class="btn" type="button" data-close-modal>Cancel</button>
+            <button class="btn primary" type="submit">{% if admin_setup_required %}Set Password{% else %}Login{% endif %}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 {% endif %}
 
@@ -176,6 +232,49 @@
       sel.addEventListener('change', () => applyState(sel.value));
       applyState(sel.value);
     }
+
+    function closeSettingsModal(modal){
+      const el = typeof modal === 'string' ? document.getElementById(modal) : modal;
+      if (!el) return;
+      el.classList.add('hidden');
+    }
+
+    function openSettingsModal(id){
+      const modal = document.getElementById(id);
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      const firstInput = modal.querySelector('input:not([type="hidden"]), select, button:not([data-close-modal])');
+      firstInput?.focus();
+    }
+
+    document.addEventListener('click', (ev) => {
+      const openBtn = ev.target.closest('[data-open-modal]');
+      if (openBtn) {
+        ev.preventDefault();
+        openSettingsModal(openBtn.getAttribute('data-open-modal'));
+        return;
+      }
+
+      const closeBtn = ev.target.closest('[data-close-modal]');
+      if (closeBtn) {
+        ev.preventDefault();
+        closeSettingsModal(closeBtn.closest('.vn-modal-backdrop'));
+        return;
+      }
+
+      if (ev.target.classList?.contains('db-settings-modal')) {
+        closeSettingsModal(ev.target);
+      }
+    });
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      document.querySelectorAll('.db-settings-modal:not(.hidden)').forEach(closeSettingsModal);
+    });
+
+    {% if show_admin_login_modal %}
+      openSettingsModal('settingsAdminLoginModal');
+    {% endif %}
   })();
 </script>
 

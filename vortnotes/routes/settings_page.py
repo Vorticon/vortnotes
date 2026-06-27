@@ -8,10 +8,11 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from flask import redirect, render_template, request, url_for
+from flask import flash, get_flashed_messages, redirect, render_template, request, url_for
 
 from ..deployment import direct_https_config, generate_self_signed_tls_cert, self_signed_tls_paths
 from ..settings import DATA_DIR, DB_DIR, UPLOAD_DIR
+from ..system_stats import container_system_stats
 
 
 def register_settings_routes(app) -> None:
@@ -29,6 +30,7 @@ def register_settings_routes(app) -> None:
         ensure_db_initialized,
         fmt_dt,
         get_db_appearance,
+        get_db_guest_permissions,
         get_db_password_info,
         get_db_read_without_password,
         get_db_upload_key,
@@ -169,7 +171,20 @@ def register_settings_routes(app) -> None:
             "interval_hours": max(1, int(ab.get("interval_hours") or 24)),
             "last_run": last_run,
             "last_run_display": last_run_display,
+            "dbs": _auto_backup_db_names(ab),
         }
+
+    def _auto_backup_db_names(ab: dict) -> list[str]:
+        available = list_db_files()
+        selected_raw = ab.get("dbs")
+        if not isinstance(selected_raw, list):
+            return available
+        selected = []
+        for raw in selected_raw:
+            name = _normalize_db_name(str(raw or ""))
+            if name in available and name not in selected:
+                selected.append(name)
+        return selected
 
     def _home_assistant_settings() -> dict:
         return home_assistant_config(load_config())
@@ -286,10 +301,32 @@ def register_settings_routes(app) -> None:
 
         last_access_map = {}
         perm_read_map = {}
+        guest_perm_map = {}
+        guest_perm_status_map = {}
         for n in dbs:
             a = get_db_appearance(n) or {}
             last_access_map[n] = fmt_dt(str(a.get("last_access") or ""))
             perm_read_map[n] = 1 if get_db_read_without_password(n) else 0
+            perms = get_db_guest_permissions(n)
+            guest_perm_map[n] = perms
+            active = [
+                perms.get("notes") != "none",
+                perms.get("content") != "none",
+                bool(perms.get("apps")),
+                bool(perms.get("home_assistant")),
+            ]
+            if not any(active):
+                status = "Off"
+            elif (
+                perms.get("notes") == "read"
+                and perms.get("content") == "read"
+                and perms.get("apps")
+                and perms.get("home_assistant")
+            ):
+                status = "Read"
+            else:
+                status = "Custom"
+            guest_perm_status_map[n] = status
 
         is_set = admin_password_is_set()
         return {
@@ -298,17 +335,20 @@ def register_settings_routes(app) -> None:
             "selected_db": selected_db_name(),
             "last_access_map": last_access_map,
             "perm_read_map": perm_read_map,
+            "guest_perm_map": guest_perm_map,
+            "guest_perm_status_map": guest_perm_status_map,
             "password_set": password_set,
             "theme_presets": ["default"] + sorted(THEME_PRESETS.keys()),
             "theme_map": theme_map,
             "admin_password_set": is_set,
             "admin_password_is_set": is_set,
-            "error_msg": (request.args.get("error") or "").strip(),
+            "error_msg": "",
             "upload_cfg": get_upload_limits_effective(),
             "backup_entries": _backup_entries(),
             "auto_backup": _auto_backup_config(),
             "disk_stats": _disk_stats(),
             "storage_stats": _storage_stats(),
+            "system_stats": container_system_stats(),
             "home_assistant": _home_assistant_settings(),
             "https_cfg": _https_settings(),
             "embedded_settings": True,
@@ -318,9 +358,9 @@ def register_settings_routes(app) -> None:
     def settings_home_assistant():
         is_admin_set = admin_password_is_set()
         if not is_admin_set:
-            return redirect(url_for("db_admin_login", next=url_for("settings_page")))
+            return redirect(url_for("settings_page", admin_login="1"))
         if not _is_admin_authed():
-            return redirect(url_for("db_admin_login", next=url_for("settings_page")))
+            return redirect(url_for("settings_page", admin_login="1"))
 
         cfg = load_config()
         current = cfg.get("home_assistant")
@@ -331,7 +371,8 @@ def register_settings_routes(app) -> None:
         raw_url = (request.form.get("base_url") or "").strip()
         base_url = normalize_local_base_url(raw_url)
         if raw_url and not base_url:
-            return redirect(url_for("settings_page", error="Home Assistant URL must be local."))
+            flash("Home Assistant URL must be local.", "error")
+            return redirect(url_for("settings_page"))
 
         token = (request.form.get("token") or "").strip()
         if not token:
@@ -343,14 +384,16 @@ def register_settings_routes(app) -> None:
             "token": token,
         }
         save_config(cfg)
+        flash("Home Assistant configuration saved.", "notice")
         return redirect(url_for("settings_page"))
 
     @app.route("/settings/https", methods=["POST"], endpoint="settings_https")
     def settings_https():
         if not admin_password_is_set() or not _is_admin_authed():
-            return redirect(url_for("db_admin_login", next=url_for("settings_page")))
+            return redirect(url_for("settings_page", admin_login="1"))
         if os.getenv("VORTNOTES_TLS_CERT_FILE", "").strip() or os.getenv("VORTNOTES_TLS_KEY_FILE", "").strip():
-            return redirect(url_for("settings_page", error="HTTPS is controlled by environment variables."))
+            flash("HTTPS is controlled by environment variables.", "error")
+            return redirect(url_for("settings_page"))
 
         enabled = (request.form.get("enabled") or "").strip().lower() in {"1", "true", "on", "yes"}
         cert_file = (request.form.get("cert_file") or "").strip()
@@ -359,39 +402,34 @@ def register_settings_routes(app) -> None:
             for label, value in (("certificate", cert_file), ("private key", key_file)):
                 path = Path(value)
                 if not value or not path.is_absolute() or not path.is_file() or not os.access(path, os.R_OK):
-                    return redirect(
-                        url_for(
-                            "settings_page",
-                            error=f"HTTPS {label} is not readable inside the container: {value or '(empty)'}",
-                        )
-                    )
+                    flash(f"HTTPS {label} is not readable inside the container: {value or '(empty)'}", "error")
+                    return redirect(url_for("settings_page"))
 
         cfg = load_config()
         cfg["https"] = {"enabled": enabled, "cert_file": cert_file, "key_file": key_file}
         save_config(cfg)
-        return redirect(url_for("settings_page", notice="HTTPS configuration saved. Restart VortNotes to apply it."))
+        flash("HTTPS configuration saved. Restart VortNotes to apply it.", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/settings/https/self-signed", methods=["POST"], endpoint="settings_https_self_signed")
     def settings_https_self_signed():
         if not admin_password_is_set() or not _is_admin_authed():
-            return redirect(url_for("db_admin_login", next=url_for("settings_page")))
+            return redirect(url_for("settings_page", admin_login="1"))
         if os.getenv("VORTNOTES_TLS_CERT_FILE", "").strip() or os.getenv("VORTNOTES_TLS_KEY_FILE", "").strip():
-            return redirect(url_for("settings_page", error="HTTPS is controlled by environment variables."))
+            flash("HTTPS is controlled by environment variables.", "error")
+            return redirect(url_for("settings_page"))
 
         try:
             cert_path, key_path = generate_self_signed_tls_cert(DATA_DIR, overwrite=True)
         except Exception:
-            return redirect(url_for("settings_page", error="Self-signed certificate generation failed."))
+            flash("Self-signed certificate generation failed.", "error")
+            return redirect(url_for("settings_page"))
 
         cfg = load_config()
         cfg["https"] = {"enabled": True, "cert_file": str(cert_path), "key_file": str(key_path)}
         save_config(cfg)
-        return redirect(
-            url_for(
-                "settings_page",
-                notice="Self-signed HTTPS certificate generated. Restart VortNotes, then reconnect with https://.",
-            )
-        )
+        flash("Self-signed HTTPS certificate generated. Restart VortNotes, then reconnect with https://.", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/settings")
     def settings_page():
@@ -408,17 +446,21 @@ def register_settings_routes(app) -> None:
             db_locked = None
 
         is_admin_set = admin_password_is_set()
-        can_admin = (not is_admin_set) or _is_admin_authed()
+        admin_authed = _is_admin_authed()
+        can_admin = (not is_admin_set) or admin_authed
         admin_setup_required = not is_admin_set
         ctx = {
             "settings_selected_db": name,
             "db_locked": db_locked,
             "is_logged_in": bool(_has_db_session_access(name)),
+            "admin_authed": bool(admin_authed),
             "can_admin": can_admin and not admin_setup_required,
             "admin_setup_required": admin_setup_required,
             "admin_login_required": is_admin_set and not can_admin,
-            "admin_login_url": url_for("db_admin_login", next=url_for("settings_page")),
-            "notice_msg": (request.args.get("notice") or "").strip(),
+            "admin_login_url": url_for("settings_page", admin_login="1"),
+            "show_admin_login_modal": request.args.get("admin_login") == "1" and not admin_authed,
+            "flashed_messages": get_flashed_messages(with_categories=True),
+            "error_msg": "",
         }
         ctx.update(_db_select_context())
         if can_admin and not admin_setup_required:

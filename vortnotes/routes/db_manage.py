@@ -18,10 +18,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import jsonify, make_response, redirect, render_template, request, send_file, session, url_for
+from flask import flash, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 
 from ..db import connect as db_connect
 from ..settings import BASE_DIR, DATA_DIR, DB_DIR, UPLOAD_DIR
+from ..system_stats import container_system_stats
 
 DB_PACKAGE_MANIFEST = "vortnotes-db-package.json"
 
@@ -97,6 +98,7 @@ def register_db_manage_routes(app) -> None:
         ensure_db_initialized,
         fmt_dt,
         get_db_appearance,
+        get_db_guest_permissions,
         get_db_password_info,
         get_db_read_without_password,
         get_db_upload_key,
@@ -111,6 +113,7 @@ def register_db_manage_routes(app) -> None:
         selected_db_name,
         set_admin_password,
         set_db_appearance,
+        set_db_guest_permissions,
         set_db_password,
         set_db_read_without_password,
         set_db_upload_key,
@@ -122,6 +125,10 @@ def register_db_manage_routes(app) -> None:
 
     BACKUP_DIR = DATA_DIR / "backups"
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _settings_error(message: str):
+        flash(message, "error")
+        return redirect(url_for("settings_page"))
 
     def _db_package_bytes(name: str, stamp: str | None = None) -> tuple[io.BytesIO, str]:
         """Build the restorable DB package ZIP used by download/manual/auto backups."""
@@ -340,7 +347,20 @@ def register_db_manage_routes(app) -> None:
             "interval_hours": max(1, int(ab.get("interval_hours") or 24)),
             "last_run": str(ab.get("last_run") or ""),
             "last_run_display": last_run_display,
+            "dbs": _auto_backup_db_names(ab),
         }
+
+    def _auto_backup_db_names(ab: dict) -> list[str]:
+        available = list_db_files()
+        selected_raw = ab.get("dbs")
+        if not isinstance(selected_raw, list):
+            return available
+        selected = []
+        for raw in selected_raw:
+            name = _normalize_db_name(str(raw or ""))
+            if name in available and name not in selected:
+                selected.append(name)
+        return selected
 
     def _maybe_run_auto_backup() -> None:
         ab = _auto_backup_config()
@@ -353,7 +373,7 @@ def register_db_manage_routes(app) -> None:
         now = datetime.utcnow()
         if last and (now - last).total_seconds() < int(ab["interval_hours"]) * 3600:
             return
-        for db_name in list_db_files():
+        for db_name in ab["dbs"]:
             try:
                 _create_backup_zip(db_name, kind="auto")
                 _prune_auto_backups(db_name, keep=3)
@@ -364,20 +384,22 @@ def register_db_manage_routes(app) -> None:
             "enabled": True,
             "interval_hours": int(ab["interval_hours"]),
             "last_run": now.isoformat(timespec="seconds"),
+            "dbs": ab["dbs"],
         }
         save_config(cfg)
 
     def _run_auto_backups_now() -> None:
         now = datetime.utcnow()
-        for db_name in list_db_files():
+        ab = _auto_backup_config()
+        for db_name in ab["dbs"]:
             _create_backup_zip(db_name, kind="auto")
             _prune_auto_backups(db_name, keep=3)
         cfg = load_config()
-        ab = _auto_backup_config()
         cfg["auto_backup"] = {
             "enabled": bool(ab["enabled"]),
             "interval_hours": int(ab["interval_hours"]),
             "last_run": now.isoformat(timespec="seconds"),
+            "dbs": ab["dbs"],
         }
         save_config(cfg)
 
@@ -392,6 +414,7 @@ def register_db_manage_routes(app) -> None:
     def db_admin_login():
         error = None
         setup_required = not admin_password_is_set()
+        next_url = request.values.get("next") or url_for("settings_page")
         if request.method == "POST":
             if setup_required:
                 pwd = (request.form.get("password") or "").strip()
@@ -403,15 +426,17 @@ def register_db_manage_routes(app) -> None:
                 else:
                     set_admin_password(pwd)
                     _set_admin_authed(remember=True)
-                    return redirect(request.form.get("next") or url_for("settings_page"))
+                    return redirect(next_url)
             else:
                 provided = request.form.get("password") or ""
                 remember = bool(request.form.get("remember"))
                 if verify_admin_password(provided):
                     _set_admin_authed(remember=remember)
-                    return redirect(request.form.get("next") or url_for("settings_page"))
+                    return redirect(next_url)
                 error = "Incorrect password."
-        next_url = request.values.get("next") or url_for("settings_page")
+            if error and next_url == url_for("settings_page"):
+                flash(error, "error")
+                return redirect(url_for("settings_page", admin_login="1"))
         return render_template(
             "admin_login.html",
             error=error,
@@ -477,7 +502,7 @@ def register_db_manage_routes(app) -> None:
             accept = (request.headers.get("Accept") or "").lower()
             xreq = (request.headers.get("X-Requested-With") or "").lower()
             wants_json = ("application/json" in accept) or (xreq in ("xmlhttprequest", "fetch"))
-            login_url = url_for("db_admin_login", next=request.full_path)
+            login_url = url_for("settings_page", admin_login="1")
             if wants_json:
                 return jsonify({"ok": False, "error": "Admin login required.", "login_url": login_url}), 401
             return redirect(login_url)
@@ -485,7 +510,7 @@ def register_db_manage_routes(app) -> None:
     @app.route("/db", methods=["GET"])
     def db_manage():
         if request.path == "/db":
-            return redirect(url_for("settings_page", **request.args))
+            return redirect(url_for("settings_page"))
 
         # "Default" DB is global and is used when a browser has no selected_db cookie.
         cfg = load_config()
@@ -552,10 +577,32 @@ def register_db_manage_routes(app) -> None:
         # Permissions + last accessed (stored per DB)
         last_access_map = {}
         perm_read_map = {}
+        guest_perm_map = {}
+        guest_perm_status_map = {}
         for n in dbs:
             a = get_db_appearance(n) or {}
             last_access_map[n] = fmt_dt(str(a.get("last_access") or ""))
             perm_read_map[n] = 1 if get_db_read_without_password(n) else 0
+            perms = get_db_guest_permissions(n)
+            guest_perm_map[n] = perms
+            active = [
+                perms.get("notes") != "none",
+                perms.get("content") != "none",
+                bool(perms.get("apps")),
+                bool(perms.get("home_assistant")),
+            ]
+            if not any(active):
+                status = "Off"
+            elif (
+                perms.get("notes") == "read"
+                and perms.get("content") == "read"
+                and perms.get("apps")
+                and perms.get("home_assistant")
+            ):
+                status = "Read"
+            else:
+                status = "Custom"
+            guest_perm_status_map[n] = status
         selected_db = selected_db_name()
 
         return render_template(
@@ -565,17 +612,20 @@ def register_db_manage_routes(app) -> None:
             selected_db=selected_db,
             last_access_map=last_access_map,
             perm_read_map=perm_read_map,
+            guest_perm_map=guest_perm_map,
+            guest_perm_status_map=guest_perm_status_map,
             password_set=password_set,
             theme_presets=["default"] + sorted(THEME_PRESETS.keys()),
             theme_map=theme_map,
             admin_password_set=admin_password_is_set(),
             admin_password_is_set=admin_password_is_set(),
-            error_msg=(request.args.get("error") or "").strip(),
+            error_msg="",
             upload_cfg=get_upload_limits_effective(),
             backup_entries=_backup_entries(),
             auto_backup=_auto_backup_config(),
             disk_stats=_disk_stats(),
             storage_stats=_storage_stats(),
+            system_stats=container_system_stats(),
             home_assistant=home_assistant_config(load_config()),
         )
 
@@ -583,9 +633,9 @@ def register_db_manage_routes(app) -> None:
     def db_theme_set():
         db_name = _normalize_db_name((request.form.get("db_name") or "").strip())
         if not db_name:
-            return redirect(url_for("db_manage", error="Database name is required."))
+            return _settings_error("Database name is required.")
         if db_name not in list_db_files():
-            return redirect(url_for("db_manage", error="Database not found."))
+            return _settings_error("Database not found.")
 
         # preset:
         #   ""  -> custom colors
@@ -593,7 +643,7 @@ def register_db_manage_routes(app) -> None:
         #   <preset> -> use THEME_PRESETS
         preset = (request.form.get("preset") or "").strip().lower()
         if preset and preset not in THEME_PRESETS and preset != "default":
-            return redirect(url_for("db_manage", error="Unknown theme preset."))
+            return _settings_error("Unknown theme preset.")
 
         accent = (request.form.get("accent") or "").strip()
         accent2 = (request.form.get("accent2") or "").strip()
@@ -627,17 +677,13 @@ def register_db_manage_routes(app) -> None:
             if bg_file and getattr(bg_file, "filename", ""):
                 ext = (Path(bg_file.filename).suffix or "").lower()
                 if ext not in ALLOWED_BG_EXTS:
-                    return redirect(
-                        url_for("db_manage", error="Unsupported background image type. Use PNG/JPG/WEBP/GIF.")
-                    )
+                    return _settings_error("Unsupported background image type. Use PNG/JPG/WEBP/GIF.")
                 new_name = _safe_bg_filename(db_name, ext)
                 save_path = bg_dir / new_name
                 max_bytes = int(get_inline_media_max_bytes())
                 ok, err = _save_with_size_limit(bg_file, save_path, max_bytes)
                 if not ok:
-                    return redirect(
-                        url_for("db_manage", error=f"Background image too large. Max is {max_bytes // (1024*1024)}MB.")
-                    )
+                    return _settings_error(f"Background image too large. Max is {max_bytes // (1024*1024)}MB.")
                 bg_filename = new_name
         except Exception:
             # If background can't be saved, don't block theme changes
@@ -719,7 +765,8 @@ def register_db_manage_routes(app) -> None:
         except Exception:
             pass
 
-        return redirect(url_for("settings_page", notice="Upload configuration saved."))
+        flash("Upload configuration saved.", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/db/auto-backup-set", methods=["POST"])
     def db_auto_backup_set():
@@ -728,6 +775,11 @@ def register_db_manage_routes(app) -> None:
             interval_hours = max(1, int((request.form.get("interval_hours") or "24").strip()))
         except Exception:
             interval_hours = 24
+        selected_dbs = []
+        for raw in request.form.getlist("db_names"):
+            name = _normalize_db_name(raw)
+            if name in list_db_files() and name not in selected_dbs:
+                selected_dbs.append(name)
 
         cfg = load_config()
         prev = cfg.get("auto_backup") if isinstance(cfg.get("auto_backup"), dict) else {}
@@ -735,6 +787,7 @@ def register_db_manage_routes(app) -> None:
             "enabled": enabled,
             "interval_hours": interval_hours,
             "last_run": str(prev.get("last_run") or ""),
+            "dbs": selected_dbs,
         }
         save_config(cfg)
 
@@ -742,9 +795,10 @@ def register_db_manage_routes(app) -> None:
             try:
                 _run_auto_backups_now()
             except Exception:
-                return redirect(url_for("db_manage", error="Auto backup failed."))
+                return _settings_error("Auto backup failed.")
 
-        return redirect(url_for("db_manage", error="Auto-backup settings saved."))
+        flash("Auto-backup settings saved.", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/db/perm-read-set", methods=["POST"])
     def db_perm_read_set():
@@ -760,14 +814,37 @@ def register_db_manage_routes(app) -> None:
         set_db_read_without_password(db_name, enabled)
         return jsonify({"ok": True, "enabled": 1 if enabled else 0})
 
+    @app.route("/db/guest-permissions-set", methods=["POST"])
+    def db_guest_permissions_set():
+        db_name = _normalize_db_name((request.form.get("db_name") or "").strip())
+        if not db_name or db_name not in list_db_files():
+            return _settings_error("Database not found.")
+        notes = (request.form.get("notes") or "none").strip().lower()
+        content = (request.form.get("content") or "none").strip().lower()
+        if notes not in {"none", "read", "write"}:
+            notes = "none"
+        if content not in {"none", "read", "manage"}:
+            content = "none"
+        set_db_guest_permissions(
+            db_name,
+            {
+                "notes": notes,
+                "content": content,
+                "apps": bool(request.form.get("apps")),
+                "home_assistant": bool(request.form.get("home_assistant")),
+            },
+        )
+        flash(f"Guest permissions saved for {db_name}.", "notice")
+        return redirect(url_for("settings_page"))
+
     @app.route("/db/admin-set-password", methods=["POST"])
     def db_admin_set_password():
         pwd = (request.form.get("password") or "").strip()
         confirm = (request.form.get("password_confirm") or "").strip()
         if not pwd:
-            return redirect(url_for("db_manage", error="Admin password cannot be empty."))
+            return _settings_error("Admin password cannot be empty.")
         if pwd != confirm:
-            return redirect(url_for("db_manage", error="Admin password confirmation does not match."))
+            return _settings_error("Admin password confirmation does not match.")
         set_admin_password(pwd)
         _set_admin_authed(remember=True)
         return redirect(url_for("db_manage"))
@@ -783,7 +860,7 @@ def register_db_manage_routes(app) -> None:
         # Enforce a maximum of 10 DBs.
         existing = list_db_files()
         if name not in existing and len(existing) >= 10:
-            return redirect(url_for("db_manage", error="Maximum of 10 databases allowed."))
+            return _settings_error("Maximum of 10 databases allowed.")
 
         p = resolve_db_path(name)
         ensure_db_initialized(p)
@@ -839,7 +916,7 @@ def register_db_manage_routes(app) -> None:
 
     @app.route("/db/backup", methods=["POST"])
     def db_backup():
-        """Create a restorable DB package ZIP, save it to backups, and download it."""
+        """Create a restorable DB package ZIP and save it to backups."""
         name = (request.form.get("name") or "").strip()
         if not name:
             return redirect(url_for("db_manage"))
@@ -848,31 +925,33 @@ def register_db_manage_routes(app) -> None:
 
         src = resolve_db_path(name)
         if not src.exists():
-            return redirect(url_for("db_manage", error="Database not found."))
+            return _settings_error("Database not found.")
 
         try:
             backup_path = _create_backup_zip(name, kind="manual")
         except Exception:
-            return redirect(url_for("db_manage", error="Backup failed."))
-        return send_file(backup_path, mimetype="application/zip", as_attachment=True, download_name=backup_path.name)
+            return _settings_error("Backup failed.")
+        flash(f"Backup created: {backup_path.name}", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/db/backup/download/<path:backup_name>", methods=["GET"], endpoint="db_backup_download")
     def db_backup_download(backup_name: str):
         backup_path = _saved_backup_path(backup_name)
         if not backup_path:
-            return redirect(url_for("db_manage", error="Backup not found."))
+            return _settings_error("Backup not found.")
         return send_file(backup_path, mimetype="application/zip", as_attachment=True, download_name=backup_path.name)
 
     @app.route("/db/backup/delete", methods=["POST"], endpoint="db_backup_delete")
     def db_backup_delete():
         backup_path = _saved_backup_path(request.form.get("backup_name") or "")
         if not backup_path:
-            return redirect(url_for("db_manage", error="Backup not found."))
+            return _settings_error("Backup not found.")
         try:
             backup_path.unlink()
         except Exception:
-            return redirect(url_for("db_manage", error="Backup delete failed."))
-        return redirect(url_for("db_manage", error="Backup deleted."))
+            return _settings_error("Backup delete failed.")
+        flash("Backup deleted.", "notice")
+        return redirect(url_for("settings_page"))
 
     @app.route("/db/set-default", methods=["POST"])
     def db_set_default():
@@ -1065,9 +1144,9 @@ def register_db_manage_routes(app) -> None:
         try:
             mem, out_name = _db_package_bytes(name)
         except FileNotFoundError:
-            return redirect(url_for("db_manage", error="Database not found."))
+            return _settings_error("Database not found.")
         except Exception:
-            return redirect(url_for("db_manage", error="Database package failed."))
+            return _settings_error("Database package failed.")
         return send_file(mem, mimetype="application/zip", as_attachment=True, download_name=out_name)
 
     @app.route("/db/import-package", methods=["POST"])
@@ -1079,15 +1158,15 @@ def register_db_manage_routes(app) -> None:
         if (not package or not getattr(package, "filename", "")) and backup_name:
             candidate = BACKUP_DIR / backup_name
             if not candidate.exists() or candidate.suffix.lower() != ".zip":
-                return redirect(url_for("db_manage", error="Backup ZIP not found."))
+                return _settings_error("Backup ZIP not found.")
             backup_path = candidate
 
         if (not package or not getattr(package, "filename", "")) and not backup_path:
-            return redirect(url_for("db_manage", error="Choose a database ZIP to import."))
+            return _settings_error("Choose a database ZIP to import.")
 
         existing = list_db_files()
         if len(existing) >= 10:
-            return redirect(url_for("db_manage", error="Maximum of 10 databases allowed."))
+            return _settings_error("Maximum of 10 databases allowed.")
 
         stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         zip_source = None
@@ -1096,7 +1175,7 @@ def register_db_manage_routes(app) -> None:
             with ZipFile(zip_source) as z:
                 members = z.namelist()
                 if not members or any(not _safe_zip_member(n) for n in members):
-                    return redirect(url_for("db_manage", error="Invalid database ZIP."))
+                    return _settings_error("Invalid database ZIP.")
 
                 manifest = {}
                 if DB_PACKAGE_MANIFEST in members:
@@ -1112,7 +1191,7 @@ def register_db_manage_routes(app) -> None:
                         db_candidates = [n for n in members if n.lower().endswith(".db")]
                     db_member = db_candidates[0] if db_candidates else ""
                 if not db_member:
-                    return redirect(url_for("db_manage", error="No database file found in ZIP."))
+                    return _settings_error("No database file found in ZIP.")
 
                 preferred_name = ""
                 if isinstance(manifest, dict):
@@ -1129,7 +1208,7 @@ def register_db_manage_routes(app) -> None:
                     ensure_db_initialized(target_path)
                 except Exception:
                     target_path.unlink(missing_ok=True)
-                    return redirect(url_for("db_manage", error="The ZIP did not contain a valid VortNotes database."))
+                    return _settings_error("The ZIP did not contain a valid VortNotes database.")
 
                 source_key = ""
                 if isinstance(manifest, dict):
@@ -1175,9 +1254,9 @@ def register_db_manage_routes(app) -> None:
                     set_db_appearance(target_name, appearance)
 
         except zipfile.BadZipFile:
-            return redirect(url_for("db_manage", error="Invalid ZIP file."))
+            return _settings_error("Invalid ZIP file.")
         except Exception:
-            return redirect(url_for("db_manage", error="Database import failed."))
+            return _settings_error("Database import failed.")
         finally:
             if backup_path and zip_source:
                 try:
@@ -1185,7 +1264,8 @@ def register_db_manage_routes(app) -> None:
                 except Exception:
                     pass
 
-        return redirect(url_for("db_manage", error=f"Imported database: {target_name}"))
+        flash(f"Imported database: {target_name}", "notice")
+        return redirect(url_for("settings_page"))
 
     def export_db_notes_as_zip(db_path: Path, db_name: str):
         """
