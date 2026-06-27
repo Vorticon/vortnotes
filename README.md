@@ -270,65 +270,6 @@ Secondary storage: None
 If Secondary storage is `Array`, Unraid may allow appdata files to spill to the
 array depending on mover/share settings.
 
-## Unraid Legacy Migration
-
-Older VortNotes templates used separate mappings:
-
-```text
-/mnt/user/appdata/vortnotes/uploads -> /app/uploads
-/mnt/user/appdata/vortnotes/dbs     -> /app/dbs
-/mnt/user/appdata/vortnotes/config/config.json -> /app/config/config.json
-```
-
-Current VortNotes uses one data root:
-
-```text
-/mnt/cache/appdata/vortnotes -> /data
-NOTES_DATA_DIR=/data
-```
-
-VortNotes has a compatibility fallback for old `/app/...` mappings. To migrate
-old mapped data into `/data`:
-
-1. Add the new root mapping:
-
-   ```text
-   /mnt/cache/appdata/vortnotes -> /data
-   ```
-
-2. Keep the old `/app/...` mappings for one startup.
-
-3. Add this variable:
-
-   ```text
-   VORTNOTES_MIGRATE_LEGACY_APP_DATA=1
-   ```
-
-4. Start the container once.
-
-5. Verify:
-
-   ```bash
-   docker exec -it Vortnotes sh -lc '
-   ls -la /data
-   ls -la /data/dbs
-   ls -la /data/uploads | head -50
-   '
-   ```
-
-6. Edit the container again:
-
-   - Remove old `/app/uploads`, `/app/dbs`, and `/app/config/config.json`
-     mappings.
-   - Remove `VORTNOTES_MIGRATE_LEGACY_APP_DATA` or set it to `0`.
-   - Keep only the `/data` mapping.
-
-The migration copies data and leaves the old source files in place. It writes:
-
-```text
-/data/.legacy_app_migration_complete
-```
-
 ## Updating Docker
 
 Plain Docker:
