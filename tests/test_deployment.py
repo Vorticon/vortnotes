@@ -107,9 +107,12 @@ def test_admin_can_save_direct_https_configuration(tmp_path: Path):
 
     page = client.get("/settings")
     assert b'id="https-config"' in page.data
+    assert b'id="configHttpsModal"' in page.data
     assert b"Enable direct HTTPS" in page.data
-    assert page.data.index(b">Config<") < page.data.index(b'id="https-config"') < page.data.index(b">Admin Access<")
-    assert page.data.count(b'class="perm-read-toggle"') == len(list_db_files())
+    assert page.data.index(b">Config<") < page.data.index(b'id="configHttpsModal"')
+    assert b'id="dbPermissionsModal"' in page.data
+    assert b"Guest Permissions" in page.data
+    assert page.data.count(b"Guest access without entering this database password.") == len(list_db_files())
 
 
 def test_admin_can_generate_self_signed_https_configuration():
@@ -137,5 +140,5 @@ def test_admin_can_generate_self_signed_https_configuration():
     assert key_path.name == "vortnotes-selfsigned.key"
 
     page = client.get("/settings")
-    assert b"Generate self-signed certificate" in page.data
+    assert b"Generate Self-Signed Certificate" in page.data
     assert b"Self-signed certificate is available" in page.data

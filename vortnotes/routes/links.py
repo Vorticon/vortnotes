@@ -21,11 +21,11 @@ def register_link_routes(app) -> None:
         _current_db_name,
         _is_unlocked,
         current_upload_dir,
+        db_guest_can,
         ensure_db_initialized,
         get_attachment_max_bytes,
         get_db,
         get_db_password_info,
-        get_db_read_without_password,
         iso_now,
         resolve_db_path,
         touch_db_last_access,
@@ -48,7 +48,7 @@ def register_link_routes(app) -> None:
             except Exception:
                 return False
 
-        if salt and phash and not _is_unlocked(name) and not get_db_read_without_password(name):
+        if salt and phash and not _is_unlocked(name) and not db_guest_can(name, "content", "read"):
             # For AJAX/JSON fetch requests, return a JSON error instead of HTML redirect.
             if _wants_json():
                 return jsonify({"ok": False, "error": "auth_required", "next": next_url}), 401
@@ -61,7 +61,7 @@ def register_link_routes(app) -> None:
         ensure_db_initialized(db_path)
         touch_db_last_access(name)
         salt, phash = get_db_password_info(db_path)
-        if salt and phash and not _is_unlocked(name):
+        if salt and phash and not _is_unlocked(name) and not db_guest_can(name, "content", "manage"):
             return redirect(url_for("settings_page", name=name, next=next_url))
         return None
 
@@ -339,7 +339,7 @@ def register_link_routes(app) -> None:
             return gate
 
         name = _current_db_name()
-        can_edit = _is_unlocked(name)  # only unlocked can edit when DB is protected
+        can_edit = _is_unlocked(name) or db_guest_can(name, "content", "manage")
         # If DB has no password, allow edit too.
         db_path = resolve_db_path(name)
         salt, phash = get_db_password_info(db_path)
