@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 
-exec gunicorn -c /app/gunicorn.conf.py app:app
+exec gunicorn --no-control-socket -c /app/gunicorn.conf.py app:app
