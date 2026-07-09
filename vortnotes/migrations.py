@@ -19,8 +19,7 @@ def _baseline_v1(_db: sqlite3.Connection) -> None:
 
 
 def _sticky_notes_v2(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS sticky_notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL DEFAULT '',
@@ -29,8 +28,7 @@ def _sticky_notes_v2(db: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
-        """
-    )
+        """)
     db.execute("CREATE INDEX IF NOT EXISTS idx_sticky_notes_updated ON sticky_notes(updated_at DESC, id DESC)")
 
 
@@ -61,15 +59,13 @@ def apply_migrations(
     backup_existing: bool = False,
 ) -> list[int]:
     """Apply pending migrations atomically and return their version numbers."""
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             applied_at TEXT NOT NULL
         )
-        """
-    )
+        """)
     applied = {int(row[0]) for row in db.execute("SELECT version FROM schema_migrations")}
     pending = [migration for migration in MIGRATIONS if migration[0] not in applied]
     if pending and backup_existing and db_path is not None and backup_dir is not None:
