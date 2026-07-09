@@ -64,7 +64,7 @@
             <th>Name</th>
             <th style="width:130px;">Status</th>
             <th style="width:150px;">Password</th>
-            <th style="width:190px;">Permissions</th>
+            <th style="width:150px;">Guest</th>
             <th style="width:160px;">Last accessed</th>
           </tr>
         </thead>
@@ -90,13 +90,7 @@
                 {% endif %}
               </td>
               <td>
-                  <label class="muted" style="display:flex; align-items:center; gap:8px; user-select:none;" title="Allow notes, content, apps, and Home Assistant actions without fully unlocking this database.">
-                    <input type="checkbox" class="perm-read-toggle" data-db-name="{{ name }}" {% if perm_read_map.get(name) %}checked{% endif %}>
-                    Read without password
-                  </label>
-                {% if false %}
-                  <span class="muted">—</span>
-                {% endif %}
+                <span class="badge" title="Guest access without entering this database password.">{{ guest_perm_status_map.get(name, 'Off') }}</span>
               </td>
               <td>
                 {% set la = last_access_map.get(name) %}
@@ -112,12 +106,12 @@
       </table>
     </div>
 
-    <div style="display:flex; justify-content:center; margin-top:14px; gap:10px; flex-wrap:wrap;">
-      <div class="seg-group">
+    <div class="db-toolbar-wrap">
+      <div class="db-action-toolbar" aria-label="Selected database actions">
         <button class="btn" type="button" id="btnDefault">Set Default</button>
         <button class="btn" type="button" id="btnRename">Rename</button>
+        <button class="btn" type="button" id="btnPermissions">Permissions</button>
         <button class="btn" type="button" id="btnDbPwd">Password</button>
-        <button class="btn" type="button" id="btnDbReset">Reset Password</button>
         <button class="btn" type="button" id="btnBackup">Backup</button>
         <button class="btn" type="button" id="btnDownloadPackage">Download DB</button>
         <button class="btn btn-danger" type="button" id="btnDelete">Delete</button>
@@ -126,67 +120,250 @@
   {% endif %}
   <hr class="db-sep">
 
-  <h3 style="margin-top:0; text-align:center;">Create DB</h3>
-  <form method="post" action="{{ url_for('db_create') }}" style="max-width:520px; margin: 0 auto;">
-    {{ csrf_field() }}
-    <input class="input" name="name" placeholder="e.g. work_notes.db (or work_notes)" />
-    <div style="display:flex; justify-content:center; margin-top:10px;">
-      <div class="seg-group flat">
-        <button class="btn" type="submit">Create</button>
-      </div>
+  <div class="db-toolbar-wrap">
+    <div class="db-management-toolbar" aria-label="Database management tools">
+      <button class="btn primary" type="button" data-open-modal="dbCreateModal">Create DB</button>
+      <button class="btn" type="button" data-open-modal="dbImportModal">Import DB ZIP</button>
+      <button class="btn" type="button" data-open-modal="dbAutoBackupModal">Auto Backups</button>
+      <button class="btn" type="button" data-open-modal="dbAppearanceModal">Appearance</button>
     </div>
-  </form>
-
-  <hr class="db-sep">
-
-  <h3 style="margin-top:0; text-align:center;">Import DB ZIP</h3>
-  <form method="post" action="{{ url_for('db_import_package') }}" enctype="multipart/form-data" style="max-width:620px; margin: 0 auto;">
-    {{ csrf_field() }}
-    <label class="label" for="dbPackageFile">External database package ZIP</label>
-    <input class="input" id="dbPackageFile" type="file" name="package" accept=".zip,application/zip">
-    <label class="label" for="dbBackupName" style="margin-top:10px;">Or import a saved backup</label>
-    <select class="input" id="dbBackupName" name="backup_name">
-      <option value="">Choose saved backup...</option>
-      {% for backup in backup_entries %}
-        <option value="{{ backup.name }}">{{ backup.name }}{% if backup.size_mb is defined %} ({{ backup.size_mb }} MB){% endif %}</option>
-      {% endfor %}
-    </select>
-    <div class="muted" style="margin-top:6px; text-align:center;">
-      Imports a ZIP created with <strong>Download DB</strong> or <strong>Backup</strong>, including the database file, uploads, and appearance settings.
-    </div>
-    <div style="display:flex; justify-content:center; margin-top:10px;">
-      <div class="seg-group flat">
-        <button class="btn" type="submit" onclick="return confirm('Import this database ZIP as a new database?')">Import ZIP</button>
-      </div>
-    </div>
-  </form>
-
-  <hr class="db-sep">
-
-  <h3 style="margin-top:0; text-align:center;">Auto Backups</h3>
-  <form method="post" action="{{ url_for('db_auto_backup_set') }}" style="max-width:620px; margin: 0 auto;">
-    {{ csrf_field() }}
-    <label class="muted" style="display:flex; align-items:center; justify-content:center; gap:8px; user-select:none;">
-      <input type="checkbox" name="enabled" value="1" {% if auto_backup.enabled %}checked{% endif %}>
-      Enable scheduled DB ZIP backups
-    </label>
-    <label class="label" for="autoBackupInterval" style="margin-top:10px;">Run every</label>
-    <div style="display:flex; align-items:center; justify-content:center; gap:10px;">
-      <input class="input" id="autoBackupInterval" type="number" name="interval_hours" min="1" value="{{ auto_backup.interval_hours or 24 }}" style="max-width:120px;">
-      <span class="muted">hours</span>
-    </div>
-    <div class="muted" style="margin-top:6px; text-align:center;">
-      Keeps the last 3 scheduled backups per database. Last run:
-      <strong>{% if auto_backup.last_run_display %}{{ auto_backup.last_run_display }}{% else %}Never{% endif %}</strong>
-    </div>
-    <div style="display:flex; justify-content:center; margin-top:10px; gap:10px; flex-wrap:wrap;">
-      <button class="btn" type="submit">Save Schedule</button>
-      <button class="btn" type="submit" name="run_now" value="1">Run Now</button>
-    </div>
-  </form>
+  </div>
+  <div class="muted" style="text-align:center; margin-top:8px;">
+    Database creation, imports, and backup scheduling now open in focused dialogs.
+  </div>
 
     </div>
   </details>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbCreateModal" role="dialog" aria-modal="true" aria-labelledby="dbCreateTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbCreateTitle">Create DB</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('db_create') }}">
+        {{ csrf_field() }}
+        <label class="label" for="dbCreateName">Database name</label>
+        <input class="input" id="dbCreateName" name="name" placeholder="e.g. work_notes.db (or work_notes)" />
+        <div class="vn-modal-hint">Use a short name you will recognize later. VortNotes will normalize the file extension if needed.</div>
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbImportModal" role="dialog" aria-modal="true" aria-labelledby="dbImportTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbImportTitle">Import DB ZIP</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('db_import_package') }}" enctype="multipart/form-data">
+        {{ csrf_field() }}
+        <label class="label" for="dbPackageFile">External database package ZIP</label>
+        <input class="input" id="dbPackageFile" type="file" name="package" accept=".zip,application/zip">
+        <label class="label" for="dbBackupName" style="margin-top:10px;">Or import a saved backup</label>
+        <select class="input" id="dbBackupName" name="backup_name">
+          <option value="">Choose saved backup...</option>
+          {% for backup in backup_entries %}
+            <option value="{{ backup.name }}">{{ backup.name }}{% if backup.size_mb is defined %} ({{ backup.size_mb }} MB){% endif %}</option>
+          {% endfor %}
+        </select>
+        <div class="vn-modal-hint">
+          Imports a ZIP created with <strong>Download DB</strong> or <strong>Backup</strong>, including the database file, uploads, and appearance settings.
+        </div>
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Import ZIP</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbAutoBackupModal" role="dialog" aria-modal="true" aria-labelledby="dbAutoBackupTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbAutoBackupTitle">Auto Backups</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('db_auto_backup_set') }}">
+        {{ csrf_field() }}
+        <label class="muted" style="display:flex; align-items:center; gap:8px; user-select:none;">
+          <input type="checkbox" name="enabled" value="1" {% if auto_backup.enabled %}checked{% endif %}>
+          Enable scheduled DB ZIP backups
+        </label>
+        <label class="label" for="autoBackupInterval" style="margin-top:10px;">Run every</label>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <input class="input" id="autoBackupInterval" type="number" name="interval_hours" min="1" value="{{ auto_backup.interval_hours or 24 }}" style="max-width:120px;">
+          <span class="muted">hours</span>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="label">Databases to include</div>
+          <div class="db-check-grid">
+            {% for name in dbs %}
+              <label class="muted" style="display:flex; align-items:center; gap:8px; user-select:none;">
+                <input type="checkbox" name="db_names" value="{{ name }}" {% if name in auto_backup.dbs %}checked{% endif %}>
+                {{ name }}
+              </label>
+            {% endfor %}
+          </div>
+          <div class="vn-modal-hint">Only checked databases will be included in scheduled backups and “Run Now”.</div>
+        </div>
+        <div class="vn-modal-hint">
+          Keeps the last 3 scheduled backups per database. Last run:
+          <strong>{% if auto_backup.last_run_display %}{{ auto_backup.last_run_display }}{% else %}Never{% endif %}</strong>
+        </div>
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn" type="submit" name="run_now" value="1">Run Now</button>
+          <button class="btn primary" type="submit">Save Schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbRenameModal" role="dialog" aria-modal="true" aria-labelledby="dbRenameTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbRenameTitle">Rename Database</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form id="renameModalForm" method="post" action="{{ url_for('db_rename') }}">
+        {{ csrf_field() }}
+        <input type="hidden" name="old" id="renameModalOld" value="">
+        <div class="muted">Current database: <strong data-selected-db-label></strong></div>
+        <label class="label" for="renameModalNew" style="margin-top:10px;">New name</label>
+        <input class="input" id="renameModalNew" name="new" autocomplete="off" required>
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Rename</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbPasswordModal" role="dialog" aria-modal="true" aria-labelledby="dbPasswordTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbPasswordTitle">Database Password</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <div class="muted">Database: <strong data-selected-db-label></strong></div>
+      <form id="passwordModalForm" method="post" action="{{ url_for('db_set_password') }}" style="margin-top:10px;">
+        {{ csrf_field() }}
+        <input type="hidden" name="name" id="passwordModalName" value="">
+        <label class="label" for="passwordModalValue">New password</label>
+        <input class="input" id="passwordModalValue" type="password" name="password" autocomplete="new-password" required>
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Save Password</button>
+        </div>
+      </form>
+      <form id="passwordClearModalForm" method="post" action="{{ url_for('db_clear_password') }}" style="margin-top:12px;">
+        {{ csrf_field() }}
+        <input type="hidden" name="name" id="passwordClearModalName" value="">
+        <div class="vn-modal-hint">Clearing the password removes the unlock requirement for this database.</div>
+        <div class="vn-modal-actions">
+          <button class="btn btn-danger" type="submit">Clear Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbPermissionsModal" role="dialog" aria-modal="true" aria-labelledby="dbPermissionsTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbPermissionsTitle">Guest Permissions</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form id="guestPermissionsForm" method="post" action="{{ url_for('db_guest_permissions_set') }}">
+        {{ csrf_field() }}
+        <input type="hidden" name="db_name" id="guestPermDbName" value="">
+        <div class="muted">Database: <strong data-selected-db-label></strong></div>
+        <div class="vn-modal-hint">Guest permissions control what someone can do without unlocking this database password. Admin login still grants full access.</div>
+
+        <div class="guest-perm-section">
+          <div class="label">Notes</div>
+          <label class="muted"><input type="radio" name="notes" value="none"> No access</label>
+          <label class="muted"><input type="radio" name="notes" value="read"> Read only</label>
+          <label class="muted"><input type="radio" name="notes" value="write"> Read + write</label>
+        </div>
+
+        <div class="guest-perm-section">
+          <div class="label">Content</div>
+          <label class="muted"><input type="radio" name="content" value="none"> No access</label>
+          <label class="muted"><input type="radio" name="content" value="read"> Read only</label>
+          <label class="muted"><input type="radio" name="content" value="manage"> Manage content</label>
+        </div>
+
+        <div class="guest-perm-section">
+          <label class="muted"><input type="checkbox" name="apps" value="1" id="guestPermApps"> Allow app use</label>
+          <label class="muted"><input type="checkbox" name="home_assistant" value="1" id="guestPermHa"> Allow Home Assistant actions</label>
+        </div>
+
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Save Permissions</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbBackupModal" role="dialog" aria-modal="true" aria-labelledby="dbBackupTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbBackupTitle">Create Backup</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <div class="muted">Create a saved restorable ZIP backup of <strong data-selected-db-label></strong>?</div>
+      <div class="vn-modal-hint">The backup will be saved under Storage, where it can be downloaded or deleted later.</div>
+      <div class="db-backup-progress" id="dbBackupProgress" role="status" aria-live="polite" hidden>
+        <div class="db-backup-progress-label">
+          <span>Creating backup...</span>
+          <span>Please wait</span>
+        </div>
+        <div class="db-backup-progress-track" aria-hidden="true">
+          <div class="db-backup-progress-bar"></div>
+        </div>
+      </div>
+      <div class="vn-modal-actions">
+        <button class="btn" type="button" data-close-modal>Cancel</button>
+        <button class="btn primary" type="button" id="btnConfirmBackup">Create Backup</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbDeleteModal" role="dialog" aria-modal="true" aria-labelledby="dbDeleteTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbDeleteTitle">Delete Database</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <div class="alert">Delete <strong data-selected-db-label></strong>? This cannot be undone.</div>
+      <div class="vn-modal-actions">
+        <button class="btn" type="button" data-close-modal>Cancel</button>
+        <button class="btn btn-danger" type="button" id="btnConfirmDelete">Delete DB</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <form id="formDefault" method="post" action="{{ url_for('db_set_default') }}" hidden>
@@ -230,10 +407,81 @@
 
 // CSRF token for fetch/AJAX posts on this page.
 const CSRF_TOKEN = "{{ csrf_token() }}";
+const GUEST_PERMISSIONS = {{ guest_perm_map|tojson }};
 function pickedDb(){
   const r = document.querySelector('input[name="db_pick"]:checked');
   return r ? r.value : null;
 }
+
+function closeDbModal(modal){
+  const el = typeof modal === 'string' ? document.getElementById(modal) : modal;
+  if (!el) return;
+  el.classList.add('hidden');
+}
+
+function openDbModal(id){
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  const firstInput = modal.querySelector('input:not([type="hidden"]), select, button:not([data-close-modal])');
+  firstInput?.focus();
+}
+
+function openSelectedDbModal(id){
+  const name = pickedDb();
+  if (!name) return alert("Select a DB first.");
+  document.querySelectorAll('[data-selected-db-label]').forEach(el => {
+    el.textContent = name;
+  });
+  const setValue = (fieldId, value) => {
+    const field = document.getElementById(fieldId);
+    if (field) field.value = value;
+  };
+  setValue('renameModalOld', name);
+  const renameNew = document.getElementById('renameModalNew');
+  if (renameNew) renameNew.value = name;
+  setValue('passwordModalName', name);
+  setValue('passwordClearModalName', name);
+  setValue('passwordModalValue', '');
+  setValue('guestPermDbName', name);
+  const perms = GUEST_PERMISSIONS[name] || {notes: 'none', content: 'none', apps: false, home_assistant: false};
+  const notesRadio = document.querySelector(`input[name="notes"][value="${perms.notes || 'none'}"]`);
+  const contentRadio = document.querySelector(`input[name="content"][value="${perms.content || 'none'}"]`);
+  if (notesRadio) notesRadio.checked = true;
+  if (contentRadio) contentRadio.checked = true;
+  const apps = document.getElementById('guestPermApps');
+  const ha = document.getElementById('guestPermHa');
+  if (apps) apps.checked = !!perms.apps;
+  if (ha) ha.checked = !!perms.home_assistant;
+  setValue('bakName', name);
+  setValue('delName', name);
+  openDbModal(id);
+}
+
+document.addEventListener('click', (ev) => {
+  const openBtn = ev.target.closest('[data-open-modal]');
+  if (openBtn) {
+    ev.preventDefault();
+    openDbModal(openBtn.getAttribute('data-open-modal'));
+    return;
+  }
+
+  const closeBtn = ev.target.closest('[data-close-modal]');
+  if (closeBtn) {
+    ev.preventDefault();
+    closeDbModal(closeBtn.closest('.vn-modal-backdrop'));
+    return;
+  }
+
+  if (ev.target.classList?.contains('db-settings-modal')) {
+    closeDbModal(ev.target);
+  }
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape') return;
+  document.querySelectorAll('.db-settings-modal:not(.hidden)').forEach(closeDbModal);
+});
 
 
 document.getElementById('btnDefault')?.addEventListener('click', () => {
@@ -244,43 +492,19 @@ document.getElementById('btnDefault')?.addEventListener('click', () => {
 });
 
 document.getElementById('btnRename')?.addEventListener('click', () => {
-  const oldName = pickedDb();
-  if (!oldName) return alert("Select a DB first.");
-  const newName = prompt("Rename DB:\n\nCurrent: " + oldName + "\n\nEnter new name:", oldName);
-  if (newName === null) return;
-  const t = newName.trim();
-  if (!t) return alert("Invalid name.");
-  document.getElementById('renOld').value = oldName;
-  document.getElementById('renNew').value = t;
-  document.getElementById('formRename').submit();
+  openSelectedDbModal('dbRenameModal');
 });
 
 document.getElementById('btnDbPwd')?.addEventListener('click', () => {
-  const name = pickedDb();
-  if (!name) return alert("Select a DB first.");
-  const pwd = prompt("Set/Change DB password for '" + name + "':", "");
-  if (pwd === null) return;
-  const t = pwd.trim();
-  if (!t) return alert("Password cannot be empty.");
-  document.getElementById('pwdName').value = name;
-  document.getElementById('pwdVal').value = t;
-  document.getElementById('formPwd').submit();
+  openSelectedDbModal('dbPasswordModal');
 });
 
-document.getElementById('btnDbReset')?.addEventListener('click', () => {
-  const name = pickedDb();
-  if (!name) return alert("Select a DB first.");
-  if (!confirm("Reset (clear) DB password for '" + name + "'?")) return;
-  document.getElementById('pwdClearName').value = name;
-  document.getElementById('formPwdClear').submit();
+document.getElementById('btnPermissions')?.addEventListener('click', () => {
+  openSelectedDbModal('dbPermissionsModal');
 });
 
 document.getElementById('btnBackup')?.addEventListener('click', () => {
-  const name = pickedDb();
-  if (!name) return alert("Select a DB first.");
-  if (!confirm("Create and download a restorable ZIP backup of '" + name + "'?")) return;
-  document.getElementById('bakName').value = name;
-  document.getElementById('formBackup').submit();
+  openSelectedDbModal('dbBackupModal');
 });
 
 document.getElementById('btnDownloadPackage')?.addEventListener('click', () => {
@@ -291,60 +515,50 @@ document.getElementById('btnDownloadPackage')?.addEventListener('click', () => {
 });
 
 document.getElementById('btnDelete')?.addEventListener('click', () => {
-  const name = pickedDb();
-  if (!name) return alert("Select a DB first.");
-  if (!confirm("Delete DB '" + name + "'? This cannot be undone.")) return;
-  document.getElementById('delName').value = name;
-  document.getElementById('formDelete').submit();
+  openSelectedDbModal('dbDeleteModal');
 });
-// Permissions: Read without password toggle
-document.querySelectorAll('.perm-read-toggle').forEach(cb => {
-  cb.addEventListener('change', async () => {
-    const dbName = cb.getAttribute('data-db-name');
-    const enabled = cb.checked ? '1' : '0';
-    try{
-      const body = new URLSearchParams();
-      body.set('db_name', dbName);
-      body.set('enabled', enabled);
-      const res = await fetch("{{ url_for('db_perm_read_set') }}", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-CSRFToken': CSRF_TOKEN,
-          // Hint to the server that this call expects JSON (avoid HTML redirects).
-          'Accept': 'application/json',
-          'X-Requested-With': 'fetch'
-        },
-        body: body.toString(),
-        credentials: 'same-origin'
-      });
-      const data = await res.json().catch(()=>null);
-      if (!res.ok || !data || !data.ok){
-        // If admin auth expired, the server returns a 401 JSON with a login URL.
-        if (data && data.login_url){
-          window.location.href = data.login_url;
-          return;
-        }
-        throw new Error((data && data.error) ? data.error : 'Unable to save setting.');
-      }
-      // keep UI in sync with server response
-      cb.checked = !!data.enabled;
-    }catch(err){
-      cb.checked = !cb.checked; // revert
-      alert(err && err.message ? err.message : 'Unable to save setting.');
-    }
+
+document.getElementById('renameModalForm')?.addEventListener('submit', (ev) => {
+  const newName = document.getElementById('renameModalNew')?.value.trim();
+  if (!newName) {
+    ev.preventDefault();
+    alert("Invalid name.");
+  }
+});
+
+document.getElementById('passwordModalForm')?.addEventListener('submit', (ev) => {
+  const pwd = document.getElementById('passwordModalValue')?.value.trim();
+  if (!pwd) {
+    ev.preventDefault();
+    alert("Password cannot be empty.");
+  }
+});
+
+document.getElementById('btnConfirmBackup')?.addEventListener('click', () => {
+  const modal = document.getElementById('dbBackupModal');
+  const progress = document.getElementById('dbBackupProgress');
+  const form = document.getElementById('formBackup');
+  if (!modal || !form) return;
+  progress?.removeAttribute('hidden');
+  modal.querySelectorAll('button').forEach(button => {
+    button.disabled = true;
   });
+  form.submit();
+});
+
+document.getElementById('btnConfirmDelete')?.addEventListener('click', () => {
+  document.getElementById('formDelete').submit();
 });
 </script>
 
 
-<div class="card">
-  <details class="db-accordion">
-    <summary>
-      <span class="caret" aria-hidden="true"></span>
-      <h3 style="margin:0;">Theme / Appearance</h3>
-    </summary>
-    <div class="db-accordion-body">
+<div class="vn-modal-backdrop hidden db-settings-modal" id="dbAppearanceModal" role="dialog" aria-modal="true" aria-labelledby="dbAppearanceTitle">
+  <div class="vn-modal vn-wide">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="dbAppearanceTitle">Database Appearance</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
   <div class="muted" style="margin:-6px 0 12px;">
     Set an accent color theme and optional background image that will apply when that database is selected.
   </div>
@@ -500,7 +714,7 @@ document.querySelectorAll('.perm-read-toggle').forEach(cb => {
     </div>
   </div>
     </div>
-  </details>
+  </div>
 </div>
 
 
@@ -511,150 +725,285 @@ document.querySelectorAll('.perm-read-toggle').forEach(cb => {
       <h3 style="margin:0;">Config</h3>
     </summary>
     <div class="db-accordion-body">
-      <div class="muted" style="margin:-6px 0 12px;">
-        Configure upload limits. <strong>These settings are global</strong> (apply to the whole app) and are <strong>not</strong> database-specific.
+      <div class="muted" style="margin:-6px 0 12px; text-align:center;">
+        Global VortNotes configuration tools. Open a focused dialog to edit each area.
       </div>
 
-      <form method="post" action="{{ url_for('db_config_set') }}">
-        {{ csrf_field() }}
-        <div class="row" style="gap:12px; flex-wrap:wrap;">
-          <div style="flex: 1 1 240px; min-width:240px;">
-            <label class="label">Max request size (MB)</label>
-            <input class="input" type="number" name="max_request_mb" min="1" step="1" value="{{ upload_cfg.max_request_mb }}">
-            <div class="muted" style="margin-top:6px;">Caps overall POST size (notes saves, inline uploads, media uploads).</div>
-          </div>
-
-          <div style="flex: 1 1 240px; min-width:240px;">
-            <label class="label">Attachment / Media max size (MB)</label>
-            <input class="input" type="number" name="attachment_max_mb" min="0" step="1" value="{{ upload_cfg.attachment_max_mb }}">
-            <div class="muted" style="margin-top:6px;">Max per-file size for note attachments and Media library uploads.</div>
-          </div>
-
-          <div style="flex: 1 1 240px; min-width:240px;">
-            <label class="label">Inline editor image upload max (MB)</label>
-            <input class="input" type="number" name="inline_media_max_mb" min="1" step="1" value="{{ upload_cfg.inline_media_max_mb }}">
-            <div class="muted" style="margin-top:6px;">Max size for images uploaded via the editor (paste/upload inline images).</div>
-          </div>
+      <div class="db-toolbar-wrap">
+        <div class="db-management-toolbar" aria-label="Configuration tools">
+          <button class="btn primary" type="button" data-open-modal="configUploadModal">Upload Limits</button>
+          <button class="btn" type="button" data-open-modal="configStorageModal">Storage</button>
+          <button class="btn" type="button" data-open-modal="configSystemModal">System</button>
+          <button class="btn" type="button" data-open-modal="configHttpsModal">HTTPS</button>
+          <button class="btn" type="button" data-open-modal="configHomeAssistantModal">Home Assistant</button>
+          <button class="btn" type="button" data-open-modal="configAdminModal">Admin Access</button>
         </div>
-
-        {% if upload_cfg.env_override %}
-          <div class="muted" style="margin-top:10px;">
-            Note: one or more limits are currently overridden by environment variables (VORTNOTES_*). The UI values show the effective limits.
-          </div>
-        {% endif %}
-
-        <div class="row" style="gap:10px; margin-top:14px;">
-          <button class="btn primary" type="submit">Save upload config</button>
-        </div>
-      </form>
-
-      <hr class="db-sep">
-
-      {% include "https_settings.html" %}
-
-      <hr class="db-sep">
-
-      <details class="db-accordion">
-        <summary>
-          <span class="caret" aria-hidden="true"></span>
-          <h3 style="margin:0;">Admin Access</h3>
-        </summary>
-        <div class="db-accordion-body">
-          <div class="muted" style="text-align:center; margin-top:6px;">
-            This password protects Database Management and configuration tools.
-          </div>
-
-          {% if not admin_password_is_set %}
-            <form method="post" action="{{ url_for('db_admin_set_password') }}" style="max-width:520px; margin: 12px auto 0;">
-              {{ csrf_field() }}
-              <input class="input" type="password" name="password" placeholder="Set admin password" autocomplete="new-password" required>
-              <input class="input" type="password" name="password_confirm" placeholder="Confirm admin password" autocomplete="new-password" required style="margin-top:8px;">
-              <div style="display:flex; justify-content:center; margin-top:10px;">
-                <div class="seg-group flat">
-                  <button class="btn" type="submit">Set Admin Password</button>
-                </div>
-              </div>
-            </form>
-          {% else %}
-            <form method="post" action="{{ url_for('db_admin_set_password') }}" style="max-width:520px; margin: 12px auto 0;">
-              {{ csrf_field() }}
-              <input class="input" type="password" name="password" placeholder="Change admin password" autocomplete="new-password" required>
-              <input class="input" type="password" name="password_confirm" placeholder="Confirm new admin password" autocomplete="new-password" required style="margin-top:8px;">
-              <div style="display:flex; justify-content:center; margin-top:10px; gap:10px; flex-wrap:wrap;">
-                <div class="seg-group flat">
-                  <button class="btn" type="submit">Change Password</button>
-                </div>
-              </div>
-            </form>
-
-            <form method="post" action="{{ url_for('db_admin_logout') }}" style="max-width:520px; margin: 10px auto 0;">
-              {{ csrf_field() }}
-              <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
-                <button class="btn" type="submit">Log out of DB Admin</button>
-              </div>
-            </form>
-          {% endif %}
-        </div>
-      </details>
-
-      <hr class="db-sep">
-
-      <details class="db-accordion">
-        <summary>
-          <span class="caret" aria-hidden="true"></span>
-          <h3 style="margin:0;">Home Assistant</h3>
-        </summary>
-        <div class="db-accordion-body" style="max-width:640px; margin:0 auto;">
-          <form method="post" action="{{ url_for('settings_home_assistant') }}">
-            {{ csrf_field() }}
-
-            <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none; margin-bottom:12px;">
-              <input type="checkbox" name="enabled" value="1" {% if home_assistant and home_assistant.enabled %}checked{% endif %}>
-              <span>Enable local Home Assistant actions</span>
-            </label>
-
-            <label class="label" for="ha_base_url">Local URL</label>
-            <input
-              id="ha_base_url"
-              class="input"
-              type="text"
-              name="base_url"
-              value="{{ home_assistant.base_url if home_assistant else '' }}"
-              placeholder="http://homeassistant.local:8123"
-              style="width:100%;"
-            >
-
-            <div style="height:12px;"></div>
-
-            <label class="label" for="ha_token">Long-lived access token</label>
-            <input
-              id="ha_token"
-              class="input"
-              type="password"
-              name="token"
-              placeholder="{% if home_assistant and home_assistant.has_token %}Token saved; leave blank to keep it{% else %}Paste token{% endif %}"
-              autocomplete="off"
-              style="width:100%;"
-            >
-            <div class="help" style="margin-top:6px;">Only local Home Assistant URLs are allowed. VortNotes stores the token server-side and uses it to list and activate scenes/scripts.</div>
-
-            <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
-              <button class="btn primary" type="submit" style="flex:1;">Save Home Assistant</button>
-            </div>
-          </form>
-        </div>
-      </details>
+      </div>
     </div>
   </details>
 </div>
 
-<div class="card">
-  <details class="db-accordion">
-    <summary>
-      <span class="caret" aria-hidden="true"></span>
-      <h3 style="margin:0;">Storage</h3>
-    </summary>
-    <div class="db-accordion-body">
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configUploadModal" role="dialog" aria-modal="true" aria-labelledby="configUploadTitle">
+  <div class="vn-modal vn-wide">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configUploadTitle">Upload Limits</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('db_config_set') }}">
+        {{ csrf_field() }}
+        <div class="muted" style="margin-bottom:12px;">
+          These settings are global and apply to the whole app, not just the selected database.
+        </div>
+        <div class="row" style="gap:12px; flex-wrap:wrap;">
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label" for="uploadMaxRequestMb">Max request size (MB)</label>
+            <input id="uploadMaxRequestMb" class="input" type="number" name="max_request_mb" min="1" step="1" value="{{ upload_cfg.max_request_mb }}">
+            <div class="muted" style="margin-top:6px;">Caps overall POST size for note saves, inline uploads, and media uploads.</div>
+          </div>
+
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label" for="uploadAttachmentMaxMb">Attachment / Media max size (MB)</label>
+            <input id="uploadAttachmentMaxMb" class="input" type="number" name="attachment_max_mb" min="0" step="1" value="{{ upload_cfg.attachment_max_mb }}">
+            <div class="muted" style="margin-top:6px;">Max per-file size for note attachments and Media library uploads.</div>
+          </div>
+
+          <div style="flex: 1 1 240px; min-width:240px;">
+            <label class="label" for="uploadInlineMaxMb">Inline editor image upload max (MB)</label>
+            <input id="uploadInlineMaxMb" class="input" type="number" name="inline_media_max_mb" min="1" step="1" value="{{ upload_cfg.inline_media_max_mb }}">
+            <div class="muted" style="margin-top:6px;">Max size for images uploaded via the editor.</div>
+          </div>
+        </div>
+
+        {% if upload_cfg.env_override %}
+          <div class="vn-modal-hint">
+            Note: one or more limits are currently overridden by environment variables (VORTNOTES_*). The UI values show the effective limits.
+          </div>
+        {% endif %}
+
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Save Upload Config</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configSystemModal" role="dialog" aria-modal="true" aria-labelledby="configSystemTitle">
+  <div class="vn-modal vn-wide">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configSystemTitle">System</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      {% if system_stats.available %}
+        <div class="db-system-grid">
+          <div class="db-system-stat">
+            <div class="muted">CPU usage</div>
+            <strong>{{ system_stats.cpu_percent_display }}</strong>
+            <div class="db-system-meter" aria-hidden="true">
+              <div style="width: {{ [system_stats.cpu_percent or 0, 100]|min }}%;"></div>
+            </div>
+          </div>
+          <div class="db-system-stat">
+            <div class="muted">Memory usage</div>
+            <strong>{{ system_stats.memory_current_display }}</strong>
+            <div class="muted" style="font-size:12px;">{{ system_stats.memory_percent_display }} of {{ system_stats.memory_limit_display }}</div>
+            {% if system_stats.memory_percent is not none %}
+              <div class="db-system-meter" aria-hidden="true">
+                <div style="width: {{ [system_stats.memory_percent, 100]|min }}%;"></div>
+              </div>
+            {% endif %}
+          </div>
+          <div class="db-system-stat">
+            <div class="muted">CPU limit</div>
+            <strong>{{ system_stats.cpu_limit_display }}</strong>
+          </div>
+          <div class="db-system-stat">
+            <div class="muted">Processes</div>
+            <strong>{{ system_stats.pids_current_display }}</strong>
+            <div class="muted" style="font-size:12px;">Limit {{ system_stats.pids_max_display }}</div>
+          </div>
+          <div class="db-system-stat">
+            <div class="muted">Container</div>
+            <strong>{{ system_stats.hostname }}</strong>
+            <div class="muted" style="font-size:12px;">{{ system_stats.source }}</div>
+          </div>
+        </div>
+      {% else %}
+        <div class="alert" style="text-align:center;">
+          System stats are unavailable on this runtime.
+        </div>
+      {% endif %}
+      <div class="vn-modal-actions">
+        <button class="btn" type="button" data-close-modal>Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configHttpsModal" role="dialog" aria-modal="true" aria-labelledby="configHttpsTitle">
+  <div class="vn-modal vn-wide" id="https-config">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configHttpsTitle">HTTPS</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('settings_https') }}">
+        {{ csrf_field() }}
+        <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none; margin-bottom:12px;">
+          <input type="checkbox" name="enabled" value="1" {% if https_cfg.enabled %}checked{% endif %} {% if https_cfg.env_override %}disabled{% endif %}>
+          <span><strong>Enable direct HTTPS</strong></span>
+        </label>
+
+        <div class="row" style="gap:12px; flex-wrap:wrap;">
+          <div style="flex:1 1 300px; min-width:260px;">
+            <label class="label" for="https_cert_file">Certificate path</label>
+            <input id="https_cert_file" class="input" type="text" name="cert_file" value="{{ https_cfg.cert_file }}" placeholder="/certs/fullchain.pem" {% if https_cfg.env_override %}disabled{% endif %}>
+          </div>
+          <div style="flex:1 1 300px; min-width:260px;">
+            <label class="label" for="https_key_file">Private-key path</label>
+            <input id="https_key_file" class="input" type="text" name="key_file" value="{{ https_cfg.key_file }}" placeholder="/certs/privkey.pem" {% if https_cfg.env_override %}disabled{% endif %}>
+          </div>
+        </div>
+
+        <div class="vn-modal-hint">
+          Use your own certificate paths, or generate a unique self-signed certificate for this install.
+          Save, restart VortNotes, then reconnect using <strong>https://</strong>.
+          {% if https_cfg.env_override %}<br>HTTPS is controlled by VORTNOTES_TLS_* environment variables, so these controls are read-only.{% endif %}
+          {% if https_cfg.enabled and (not https_cfg.cert_exists or not https_cfg.key_exists) %}<br><strong>Warning:</strong> one or both configured files are unavailable.{% endif %}
+          {% if https_cfg.self_signed_exists %}<br>Self-signed certificate is available at <code>{{ https_cfg.self_signed_cert_file }}</code>.{% endif %}
+        </div>
+
+        {% if not https_cfg.env_override %}
+          <div class="vn-modal-actions">
+            <button class="btn" type="button" data-close-modal>Cancel</button>
+            <button class="btn primary" type="submit">Save HTTPS Configuration</button>
+          </div>
+        {% endif %}
+      </form>
+
+      {% if not https_cfg.env_override %}
+        <form method="post" action="{{ url_for('settings_https_self_signed') }}" style="margin-top:12px;">
+          {{ csrf_field() }}
+          <div class="vn-modal-hint">
+            Creates a private key and certificate under <code>{{ https_cfg.self_signed_cert_file }}</code>
+            and enables direct HTTPS. Browsers will warn because it is self-signed.
+          </div>
+          <div class="vn-modal-actions">
+            <button class="btn" type="submit">Generate Self-Signed Certificate</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configHomeAssistantModal" role="dialog" aria-modal="true" aria-labelledby="configHomeAssistantTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configHomeAssistantTitle">Home Assistant</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('settings_home_assistant') }}">
+        {{ csrf_field() }}
+
+        <label class="check" style="display:flex; align-items:center; gap:10px; user-select:none; margin-bottom:12px;">
+          <input type="checkbox" name="enabled" value="1" {% if home_assistant and home_assistant.enabled %}checked{% endif %}>
+          <span>Enable local Home Assistant actions</span>
+        </label>
+
+        <label class="label" for="ha_base_url">Local URL</label>
+        <input
+          id="ha_base_url"
+          class="input"
+          type="text"
+          name="base_url"
+          value="{{ home_assistant.base_url if home_assistant else '' }}"
+          placeholder="http://homeassistant.local:8123"
+          style="width:100%;"
+        >
+
+        <div style="height:12px;"></div>
+
+        <label class="label" for="ha_token">Long-lived access token</label>
+        <input
+          id="ha_token"
+          class="input"
+          type="password"
+          name="token"
+          placeholder="{% if home_assistant and home_assistant.has_token %}Token saved; leave blank to keep it{% else %}Paste token{% endif %}"
+          autocomplete="off"
+          style="width:100%;"
+        >
+        <div class="help" style="margin-top:6px;">Only local Home Assistant URLs are allowed. VortNotes stores the token server-side and uses it to list and activate scenes/scripts.</div>
+
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Save Home Assistant</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configAdminModal" role="dialog" aria-modal="true" aria-labelledby="configAdminTitle">
+  <div class="vn-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configAdminTitle">Admin Access</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <div class="muted">
+        This password protects Database Management and configuration tools.
+      </div>
+
+      {% if not admin_password_is_set %}
+        <form method="post" action="{{ url_for('db_admin_set_password') }}" style="margin-top:12px;">
+          {{ csrf_field() }}
+          <label class="label" for="adminPasswordNew">Admin password</label>
+          <input id="adminPasswordNew" class="input" type="password" name="password" placeholder="Set admin password" autocomplete="new-password" required>
+          <label class="label" for="adminPasswordConfirm" style="margin-top:8px;">Confirm password</label>
+          <input id="adminPasswordConfirm" class="input" type="password" name="password_confirm" placeholder="Confirm admin password" autocomplete="new-password" required>
+          <div class="vn-modal-actions">
+            <button class="btn" type="button" data-close-modal>Cancel</button>
+            <button class="btn primary" type="submit">Set Admin Password</button>
+          </div>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('db_admin_set_password') }}" style="margin-top:12px;">
+          {{ csrf_field() }}
+          <label class="label" for="adminPasswordChange">New admin password</label>
+          <input id="adminPasswordChange" class="input" type="password" name="password" placeholder="Change admin password" autocomplete="new-password" required>
+          <label class="label" for="adminPasswordChangeConfirm" style="margin-top:8px;">Confirm new password</label>
+          <input id="adminPasswordChangeConfirm" class="input" type="password" name="password_confirm" placeholder="Confirm new admin password" autocomplete="new-password" required>
+          <div class="vn-modal-actions">
+            <button class="btn" type="button" data-close-modal>Cancel</button>
+            <button class="btn primary" type="submit">Change Password</button>
+          </div>
+        </form>
+
+        <form method="post" action="{{ url_for('db_admin_logout') }}" style="margin-top:12px;">
+          {{ csrf_field() }}
+          <div class="vn-modal-hint">This logs your browser out of the Database Management admin area.</div>
+          <div class="vn-modal-actions">
+            <button class="btn" type="submit">Log Out of DB Admin</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configStorageModal" role="dialog" aria-modal="true" aria-labelledby="configStorageTitle">
+  <div class="vn-modal vn-wide">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configStorageTitle">Storage</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
       <div class="muted" style="max-width:720px; margin:0 auto; text-align:center;">
         Data folder: <strong>{{ storage_stats.disk.path }}</strong>
       </div>
@@ -741,24 +1090,30 @@ document.querySelectorAll('.perm-read-toggle').forEach(cb => {
             <tbody>
               {% for backup in backup_entries[:12] %}
                 <tr>
-                  <td><a href="{{ url_for('db_backup_download', backup_name=backup.name) }}" style="color:inherit;">{{ backup.name }}</a></td>
+                  <td><a class="db-backup-link" href="{{ url_for('db_backup_download', backup_name=backup.name) }}">{{ backup.name }}</a></td>
                   <td>{{ backup.size_mb }} MB</td>
                   <td><span class="muted">{{ backup.modified }}</span></td>
                   <td>
-                    <form method="post" action="{{ url_for('db_backup_delete') }}" style="margin:0;" onsubmit="return confirm('Delete saved backup {{ backup.name|e }}?')">
-                      {{ csrf_field() }}
-                      <input type="hidden" name="backup_name" value="{{ backup.name }}">
-                      <button class="btn btn-danger" type="submit">Delete</button>
-                    </form>
+                    <div class="db-inline-actions">
+                      <form method="post" action="{{ url_for('db_backup_delete') }}" style="margin:0;" onsubmit="return confirm('Delete saved backup {{ backup.name|e }}?')">
+                        {{ csrf_field() }}
+                        <input type="hidden" name="backup_name" value="{{ backup.name }}">
+                        <button class="btn btn-danger" type="submit">Delete</button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+      {% else %}
+        <div class="alert" style="margin-top:14px; text-align:center;">
+          No saved backups yet. Use <strong>Backup</strong> for a selected database, or enable <strong>Auto Backups</strong>.
+        </div>
       {% endif %}
     </div>
-  </details>
+  </div>
 </div>
 
 {% endblock %}

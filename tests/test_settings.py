@@ -11,6 +11,31 @@ def test_app_has_max_content_length():
     assert app.config.get("MAX_CONTENT_LENGTH") is not None
 
 
+def test_container_system_stats_reads_cgroup_values(tmp_path, monkeypatch):
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    (cgroup / "cpu.stat").write_text("usage_usec 1000\n", encoding="utf-8")
+    (cgroup / "cpu.max").write_text("50000 100000\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text(str(128 * 1024 * 1024), encoding="utf-8")
+    (cgroup / "memory.max").write_text(str(512 * 1024 * 1024), encoding="utf-8")
+    (cgroup / "pids.current").write_text("12", encoding="utf-8")
+    (cgroup / "pids.max").write_text("256", encoding="utf-8")
+
+    from vortnotes import system_stats
+
+    monkeypatch.setattr(system_stats, "_sample_cpu_percent", lambda _root: 12.5)
+    stats = system_stats.container_system_stats(cgroup)
+
+    assert stats["available"] is True
+    assert stats["cpu_percent_display"] == "12.5%"
+    assert stats["cpu_limit_display"] == "0.50 cores"
+    assert stats["memory_current_display"] == "128.00 MB"
+    assert stats["memory_limit_display"] == "512.00 MB"
+    assert stats["memory_percent_display"] == "25.0%"
+    assert stats["pids_current_display"] == "12"
+    assert stats["pids_max_display"] == "256"
+
+
 def test_settings_defaults_match_expected_when_env_unset(monkeypatch):
     # Ensure env vars aren't overriding defaults for this test.
     monkeypatch.delenv("VORTNOTES_INLINE_IMAGE_MAX_MB", raising=False)

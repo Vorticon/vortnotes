@@ -583,6 +583,14 @@ def touch_db_last_access(db_name: str) -> None:
 
 def get_db_read_without_password(db_name: str) -> bool:
     """If True, allow read-only access to a password-protected DB without unlocking."""
+    perms = get_db_guest_permissions(db_name)
+    if (
+        perms.get("notes") != "none"
+        or perms.get("content") != "none"
+        or bool(perms.get("apps"))
+        or bool(perms.get("home_assistant"))
+    ):
+        return True
     a = get_db_appearance(db_name) or {}
     try:
         return bool(int(a.get("perm_read_no_password") or 0))
@@ -596,7 +604,82 @@ def set_db_read_without_password(db_name: str, enabled: bool) -> None:
     if not isinstance(a, dict):
         a = {}
     a["perm_read_no_password"] = 1 if enabled else 0
+    if enabled:
+        a["guest_permissions"] = {
+            "notes": "read",
+            "content": "read",
+            "apps": True,
+            "home_assistant": True,
+        }
+    else:
+        a["guest_permissions"] = {
+            "notes": "none",
+            "content": "none",
+            "apps": False,
+            "home_assistant": False,
+        }
     set_db_appearance(db_name, a)
+
+
+def _normalize_guest_permissions(raw) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    notes = str(raw.get("notes") or "none").strip().lower()
+    content = str(raw.get("content") or "none").strip().lower()
+    if notes not in {"none", "read", "write"}:
+        notes = "none"
+    if content not in {"none", "read", "manage"}:
+        content = "none"
+    return {
+        "notes": notes,
+        "content": content,
+        "apps": bool(raw.get("apps")),
+        "home_assistant": bool(raw.get("home_assistant")),
+    }
+
+
+def get_db_guest_permissions(db_name: str) -> dict:
+    """Return what guests can do without a DB unlock for one database."""
+    a = get_db_appearance(db_name) or {}
+    raw = a.get("guest_permissions")
+    if isinstance(raw, dict):
+        return _normalize_guest_permissions(raw)
+    try:
+        legacy_read = bool(int(a.get("perm_read_no_password") or 0))
+    except Exception:
+        legacy_read = False
+    if legacy_read:
+        return {"notes": "read", "content": "read", "apps": True, "home_assistant": True}
+    return {"notes": "none", "content": "none", "apps": False, "home_assistant": False}
+
+
+def set_db_guest_permissions(db_name: str, permissions: dict) -> None:
+    db_name = _normalize_db_name(db_name)
+    a = get_db_appearance(db_name) or {}
+    if not isinstance(a, dict):
+        a = {}
+    perms = _normalize_guest_permissions(permissions)
+    a["guest_permissions"] = perms
+    a["perm_read_no_password"] = (
+        1 if (perms["notes"] != "none" or perms["content"] != "none" or perms["apps"] or perms["home_assistant"]) else 0
+    )
+    set_db_appearance(db_name, a)
+
+
+def db_guest_can(db_name: str, area: str, action: str = "read") -> bool:
+    perms = get_db_guest_permissions(db_name)
+    area = (area or "").strip().lower()
+    action = (action or "read").strip().lower()
+    if area == "notes":
+        level = perms.get("notes")
+        return level == "write" or (action == "read" and level == "read")
+    if area == "content":
+        level = perms.get("content")
+        return level == "manage" or (action == "read" and level == "read")
+    if area == "apps":
+        return bool(perms.get("apps"))
+    if area == "home_assistant":
+        return bool(perms.get("home_assistant"))
+    return False
 
 
 # ---- Appearance helpers for DB operations ----
@@ -1356,27 +1439,37 @@ def require_db_unlocked():
     ensure_db_initialized(db_path)
     salt, phash = get_db_password_info(db_path)
     if salt and phash and not _is_unlocked(name):
-        # Optional: allow read-only access without unlocking.
-        if get_db_read_without_password(name) and request.method == "GET":
+        # Optional: allow guest access without unlocking.
+        if request.method == "GET":
             pth = request.path or ""
+            if (pth == "/" or re.match(r"^/notes/\d+/?$", pth)) and db_guest_can(name, "notes", "read"):
+                return
+            if (pth == "/notes/new" or re.match(r"^/notes/\d+/edit/?$", pth)) and db_guest_can(name, "notes", "write"):
+                return
             if (
-                pth == "/"
-                or re.match(r"^/notes/\d+/?$", pth)
-                # Content (new unified page) + legacy links route
-                or pth == "/content"
-                or pth == "/content/"
-                or pth.startswith("/content/apps/")
-                or re.match(r"^/content/group/\d+/items/?$", pth)
-                or pth == "/links"
-                or pth == "/links/"
-                or pth == "/media"
-                or pth == "/media/"
-            ):
+                pth == "/content" or pth == "/content/" or re.match(r"^/content/group/\d+/items/?$", pth)
+            ) and db_guest_can(name, "content", "read"):
+                return
+            if pth.startswith("/content/apps/") and db_guest_can(name, "apps", "use"):
+                return
+            if (pth == "/links" or pth == "/links/") and db_guest_can(name, "content", "read"):
+                return
+            if (pth == "/media" or pth == "/media/") and db_guest_can(name, "content", "read"):
                 return
         # Home Assistant tiles are intentionally usable in read-only mode.
         # They do not mutate the selected VortNotes database.
-        if get_db_read_without_password(name) and request.method == "POST" and p == "/content/ha/activate":
+        if db_guest_can(name, "home_assistant", "trigger") and request.method == "POST" and p == "/content/ha/activate":
             return
+        if db_guest_can(name, "notes", "write") and request.method == "POST":
+            if (
+                p == "/notes/new"
+                or re.match(r"^/notes/\d+/(edit|pin|delete)/?$", p)
+                or re.match(r"^/attachments/\d+/delete/?$", p)
+            ):
+                return
+        if db_guest_can(name, "content", "manage") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            if p.startswith("/content") or p.startswith("/links") or p.startswith("/media"):
+                return
         return redirect(url_for("settings_page", name=name, next=request.full_path))
 
 
