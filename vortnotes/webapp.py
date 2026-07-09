@@ -774,8 +774,7 @@ def ensure_db_initialized(db_path: Path):
     backup_existing = db_path.exists() and db_path.stat().st_size > 0
     db = db_connect(db_path)
     db.execute("PRAGMA foreign_keys = ON;")
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -785,8 +784,7 @@ def ensure_db_initialized(db_path: Path):
             -- Quill Delta JSON (reliable round-tripping for tables and other rich formats).
             content_delta TEXT
         )
-    """
-    )
+    """)
 
     # Notes table migration: add 'updated_at' and 'pinned' columns (newer versions).
     try:
@@ -828,16 +826,13 @@ def ensure_db_initialized(db_path: Path):
         db.execute("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")
     except Exception:
         pass
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS db_meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )
-    """
-    )
-    db.execute(
-        """
+    """)
+    db.execute("""
         CREATE TABLE IF NOT EXISTS attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             note_id INTEGER NOT NULL,
@@ -850,8 +845,7 @@ def ensure_db_initialized(db_path: Path):
             height INTEGER,
             FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
         )
-    """
-    )
+    """)
     # lightweight migration for old DBs
     for col_sql in [
         "ALTER TABLE attachments ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0",
@@ -878,8 +872,7 @@ def ensure_db_initialized(db_path: Path):
     except Exception:
         pass
 
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS link_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -887,8 +880,7 @@ def ensure_db_initialized(db_path: Path):
             created_at TEXT NOT NULL,
             display_order INTEGER NOT NULL DEFAULT 0
         )
-    """
-    )
+    """)
     # lightweight migration for old DBs
     for col_sql in [
         "ALTER TABLE link_groups ADD COLUMN icon_stored_name TEXT",
@@ -899,8 +891,7 @@ def ensure_db_initialized(db_path: Path):
         except Exception:
             pass
 
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -920,8 +911,7 @@ def ensure_db_initialized(db_path: Path):
             display_order INTEGER NOT NULL DEFAULT 0,
             sub_order INTEGER
         )
-    """
-    )
+    """)
     # lightweight migration for old DBs
     for col_sql in [
         "ALTER TABLE links ADD COLUMN icon_stored_name TEXT",
@@ -944,8 +934,7 @@ def ensure_db_initialized(db_path: Path):
             pass
 
     # Media library (database-scoped uploads)
-    db.execute(
-        """
+    db.execute("""
         CREATE TABLE IF NOT EXISTS media (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             original_name TEXT NOT NULL,
@@ -954,8 +943,7 @@ def ensure_db_initialized(db_path: Path):
             created_at TEXT NOT NULL,
             display_order INTEGER NOT NULL DEFAULT 0
         )
-    """
-    )
+    """)
     for col_sql in [
         "ALTER TABLE media ADD COLUMN mime TEXT NOT NULL DEFAULT 'application/octet-stream'",
         "ALTER TABLE media ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0",
