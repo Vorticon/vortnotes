@@ -1,4 +1,6 @@
 import io
+import json
+import sqlite3
 import uuid
 
 from vortnotes import create_app
@@ -322,6 +324,77 @@ def test_guest_permissions_allow_notes_write_without_content_access():
     assert "/notes/" in created.headers["Location"]
 
 
+def test_locked_camera_hls_does_not_return_settings_html():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"locked_camera_{uuid.uuid4().hex}.db"
+    path = resolve_db_path(name)
+    ensure_db_initialized(path)
+    set_db_password(path, "secret")
+    set_db_guest_permissions(
+        name,
+        {
+            "notes": "none",
+            "content": "none",
+            "apps": False,
+            "home_assistant": False,
+        },
+    )
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+
+    response = client.get("/content/camera/1/hls/stream.m3u8", follow_redirects=True)
+
+    assert response.status_code == 401
+    assert response.content_type.startswith("text/plain")
+    assert b"Camera stream access requires unlocking this database." in response.data
+    assert b"<html" not in response.data.lower()
+    assert b"db-accordion" not in response.data
+
+
+def test_read_without_password_allows_camera_stream_lifecycle():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"readonly_camera_{uuid.uuid4().hex}.db"
+    path = resolve_db_path(name)
+    ensure_db_initialized(path)
+    set_db_password(path, "secret")
+    set_db_read_without_password(name, True)
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    with client.session_transaction() as session:
+        session["_csrf_token"] = "readonly-camera-token"
+
+    hls = client.get("/content/camera/1/hls/stream.m3u8")
+    assert hls.status_code == 503
+    assert b"auth_required" not in hls.data
+    assert b"db-accordion" not in hls.data
+
+    start = client.post(
+        "/content/camera/1/stream/start",
+        headers={
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRFToken": "readonly-camera-token",
+        },
+    )
+    assert start.status_code == 400
+    assert start.get_json()["error"] == "rtsp_playback_not_configured"
+
+    stop = client.post(
+        "/content/camera/1/stream/stop",
+        headers={
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRFToken": "readonly-camera-token",
+        },
+    )
+    assert stop.status_code == 200
+    assert stop.get_json()["ok"] is True
+
+
 def test_remembered_db_login_allows_switching_until_logout():
     app = create_app()
     app.config["TESTING"] = True
@@ -389,3 +462,163 @@ def test_remembered_db_login_allows_switching_until_logout():
     )
     assert locked_again.status_code == 302
     assert "db_error=Password+required" in locked_again.headers["Location"]
+
+
+def test_content_camera_uses_saved_profile_as_single_source_of_truth():
+    from vortnotes.webapp import load_config, save_config
+
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"camera_profile_{uuid.uuid4().hex}.db"
+    path = resolve_db_path(name)
+    ensure_db_initialized(path)
+    original_cfg = load_config()
+    profile_id = f"front-door-{uuid.uuid4().hex}"
+
+    try:
+        cfg = dict(original_cfg)
+        cfg["cameras"] = [
+            {
+                "id": profile_id,
+                "title": "Front Door",
+                "vendor": "reolink",
+                "playback_mode": "snapshot",
+                "base_url": "http://192.168.1.10",
+                "username": "viewer",
+                "password": "secret",
+                "channel": 0,
+                "refresh_ms": 500,
+                "ptz_mode": "reolink",
+                "stream": "",
+            }
+        ]
+        save_config(cfg)
+
+        client = app.test_client()
+        client.set_cookie("selected_db", name)
+        with client.session_transaction() as session:
+            session["_csrf_token"] = "camera-profile-token"
+
+        created = client.post(
+            "/content/item/save",
+            data={
+                "csrf_token": "camera-profile-token",
+                "mode": "add",
+                "row_type": "camera",
+                "title": "Front Door Tile",
+                "camera_profile_id": profile_id,
+                "group_id": "",
+                "return_to": "/content/edit",
+            },
+        )
+        assert created.status_code == 302
+
+        with sqlite3.connect(path) as db:
+            row = db.execute("SELECT url FROM links WHERE item_kind='camera' AND title='Front Door Tile'").fetchone()
+        assert row is not None
+        assert json.loads(row[0]) == {"profile_id": profile_id}
+
+        # Older profile-linked rows could retain a per-item PTZ override. The
+        # saved profile must remain authoritative for those rows as well.
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "UPDATE links SET url=? WHERE item_kind='camera' AND title='Front Door Tile'",
+                (json.dumps({"profile_id": profile_id, "ptz_mode": "none"}),),
+            )
+            db.commit()
+
+        first_page = client.get("/content/edit")
+        first_html = first_page.data.decode("utf-8")
+        assert 'data-camera-base-url="http://192.168.1.10"' in first_html
+        assert 'data-camera-ptz-mode="reolink"' in first_html
+        assert 'name="camera_base_url"' not in first_html
+        assert 'name="camera_password"' not in first_html
+        assert ">Custom</option>" not in first_html
+
+        cfg["cameras"][0]["base_url"] = "http://192.168.1.11"
+        cfg["cameras"][0]["refresh_ms"] = 1250
+        save_config(cfg)
+
+        updated_page = client.get("/content/edit")
+        updated_html = updated_page.data.decode("utf-8")
+        assert 'data-camera-base-url="http://192.168.1.11"' in updated_html
+        assert 'data-camera-refresh-ms="1250"' in updated_html
+        assert 'data-camera-base-url="http://192.168.1.10"' not in updated_html
+    finally:
+        save_config(original_cfg)
+
+
+def test_reolink_live_profile_derives_rtsp_from_single_credentials():
+    from vortnotes.webapp import load_config, save_config, set_admin_password
+
+    original_cfg = load_config()
+    try:
+        app = create_app()
+        app.config["TESTING"] = True
+        set_admin_password("test-password")
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["admin_authed"] = True
+            session["_csrf_token"] = "reolink-profile-token"
+
+        response = client.post(
+            "/settings/cameras",
+            data={
+                "csrf_token": "reolink-profile-token",
+                "camera_id": "",
+                "camera_title": "Driveway",
+                "camera_vendor": "reolink",
+                "camera_playback_mode": "rtsp",
+                "camera_base_url": "http://192.168.1.50",
+                "camera_username": "camera user",
+                "camera_password": "p@ss word",
+                "camera_channel": "1",
+                "camera_refresh_ms": "500",
+                "camera_ptz_mode": "reolink",
+                "camera_stream_quality": "sub",
+                "camera_stream": "",
+            },
+        )
+        assert response.status_code == 302
+
+        saved = load_config()["cameras"][0]
+        assert saved["stream"] == ""
+        assert saved["username"] == "camera user"
+        assert saved["password"] == "p@ss word"
+        assert saved["stream_quality"] == "sub"
+
+        name = f"reolink_profile_{uuid.uuid4().hex}.db"
+        path = resolve_db_path(name)
+        ensure_db_initialized(path)
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "INSERT INTO links (title, url, target, created_at, display_order, item_kind, embed) "
+                "VALUES (?, ?, '_self', '', 0, 'camera', 0)",
+                ("Driveway Tile", json.dumps({"profile_id": saved["id"]})),
+            )
+            db.commit()
+
+        client.set_cookie("selected_db", name)
+        page = client.get("/content/edit")
+        html = page.data.decode("utf-8")
+        assert 'data-camera-stream="rtsp://camera%20user:p%40ss%20word@192.168.1.50:554/' 'h264Preview_02_sub"' in html
+    finally:
+        save_config(original_cfg)
+
+
+def test_empty_content_page_keeps_right_click_add_target():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"empty_content_{uuid.uuid4().hex}.db"
+    ensure_db_initialized(resolve_db_path(name))
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    page = client.get("/content")
+
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert 'id="vnContentGrid"' in html
+    assert "No content yet. Right-click here to add your first item." in html
+    assert "grid.addEventListener('contextmenu'" in html
+    assert 'onclick="vnContentContextAdd()"' in html

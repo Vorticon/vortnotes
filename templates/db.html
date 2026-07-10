@@ -736,6 +736,7 @@ document.getElementById('btnConfirmDelete')?.addEventListener('click', () => {
           <button class="btn" type="button" data-open-modal="configSystemModal">System</button>
           <button class="btn" type="button" data-open-modal="configHttpsModal">HTTPS</button>
           <button class="btn" type="button" data-open-modal="configHomeAssistantModal">Home Assistant</button>
+          <button class="btn" type="button" data-open-modal="configCamerasModal">Cameras</button>
           <button class="btn" type="button" data-open-modal="configAdminModal">Admin Access</button>
         </div>
       </div>
@@ -949,6 +950,168 @@ document.getElementById('btnConfirmDelete')?.addEventListener('click', () => {
   </div>
 </div>
 
+<div class="vn-modal-backdrop hidden db-settings-modal" id="configCamerasModal" role="dialog" aria-modal="true" aria-labelledby="configCamerasTitle">
+  <div class="vn-modal vn-wide vn-camera-config-modal">
+    <div class="vn-modal-header">
+      <div class="vn-modal-title" id="configCamerasTitle">Cameras</div>
+      <button class="vn-modal-close" type="button" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="vn-modal-body">
+      <form method="post" action="{{ url_for('settings_cameras') }}">
+        {{ csrf_field() }}
+        <div class="muted" style="margin-bottom:12px;">
+          Saved camera profiles are global and can be reused by camera icons in any database.
+          For Reolink, enter the address and credentials once; VortNotes builds the live-stream URL automatically.
+        </div>
+
+        {% for camera in camera_profiles or [] %}
+          <div data-camera-config-row style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:12px; margin-top:10px; background:rgba(255,255,255,0.03);">
+            <input type="hidden" name="camera_id" value="{{ camera.id or '' }}">
+            <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
+              <div style="flex:1 1 170px; min-width:170px;">
+                <label class="label">Title</label>
+                <input class="input" type="text" name="camera_title" value="{{ camera.title or '' }}" placeholder="Camera title">
+              </div>
+              <div data-camera-reolink style="flex:2 1 260px; min-width:240px;">
+                <label class="label">Camera address</label>
+                <input class="input" type="text" name="camera_base_url" value="{{ camera.base_url or '' }}" placeholder="http://192.168.1.50">
+              </div>
+              <div style="flex:1 1 170px; min-width:160px;">
+                <label class="label">Camera type</label>
+                <select class="input" name="camera_vendor" data-camera-vendor>
+                  <option value="generic" {% if (camera.vendor or 'generic') == 'generic' %}selected{% endif %}>Generic RTSP</option>
+                  <option value="reolink" {% if camera.vendor == 'reolink' %}selected{% endif %}>Reolink</option>
+                </select>
+              </div>
+              <div data-camera-playback-field style="flex:1 1 190px; min-width:180px;">
+                <label class="label">Playback</label>
+                <select class="input" name="camera_playback_mode" data-camera-playback>
+                  <option value="snapshot" {% if (camera.playback_mode or 'snapshot') == 'snapshot' %}selected{% endif %}>Snapshots</option>
+                  <option value="rtsp" {% if camera.playback_mode == 'rtsp' %}selected{% endif %}>Live stream</option>
+                </select>
+              </div>
+              <div data-camera-reolink style="flex:1 1 150px; min-width:140px;">
+                <label class="label">Username</label>
+                <input class="input" type="text" name="camera_username" value="{{ camera.username or '' }}" autocomplete="off">
+              </div>
+              <div data-camera-reolink style="flex:1 1 170px; min-width:150px;">
+                <label class="label">Password</label>
+                <input class="input" type="password" name="camera_password" placeholder="{% if camera.has_password %}Saved; leave blank{% else %}Password{% endif %}" autocomplete="new-password">
+              </div>
+            </div>
+            <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
+              <div data-camera-reolink style="flex:0 1 110px; min-width:100px;">
+                <label class="label">Channel</label>
+                <input class="input" type="number" name="camera_channel" min="0" step="1" value="{{ camera.channel if camera.channel is defined else 0 }}">
+                <div class="help">0 = Preview_01, 1 = Preview_02</div>
+              </div>
+              <div data-camera-reolink style="flex:0 1 180px; min-width:160px;">
+                <label class="label">Reolink PTZ</label>
+                <select class="input" name="camera_ptz_mode">
+                  <option value="none" {% if (camera.ptz_mode or 'none') == 'none' %}selected{% endif %}>Off</option>
+                  <option value="reolink" {% if camera.ptz_mode == 'reolink' %}selected{% endif %}>Reolink HTTP</option>
+                </select>
+                <div data-camera-snapshot style="margin-top:10px;">
+                  <label class="label">Refresh ms</label>
+                  <input class="input" type="number" name="camera_refresh_ms" min="100" max="10000" step="50" value="{{ camera.refresh_ms if camera.refresh_ms is defined else 500 }}">
+                </div>
+              </div>
+              <div data-camera-quality style="flex:0 1 150px; min-width:130px;">
+                <label class="label">Stream quality</label>
+                <select class="input" name="camera_stream_quality">
+                  <option value="main" {% if (camera.stream_quality or 'main') == 'main' %}selected{% endif %}>Main</option>
+                  <option value="sub" {% if camera.stream_quality == 'sub' %}selected{% endif %}>Sub</option>
+                </select>
+              </div>
+              <div data-camera-stream style="flex:2 1 300px; min-width:260px;">
+                <label class="label">RTSP stream URL</label>
+                <input class="input" type="text" name="camera_stream" value="{{ camera.stream or '' }}" placeholder="rtsp://user:pass@192.168.1.50:554/...">
+              </div>
+              <label class="check" style="display:flex; gap:8px; align-items:center; margin-bottom:9px;">
+                <input type="checkbox" name="camera_delete" value="{{ camera.id }}">
+                <span>Delete</span>
+              </label>
+            </div>
+          </div>
+        {% endfor %}
+
+        <details class="vn-camera-add-details" style="margin-top:12px;">
+          <summary class="btn" style="display:inline-flex; cursor:pointer;">Add Camera</summary>
+          <div data-camera-config-row style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:12px; margin-top:10px; background:rgba(255,255,255,0.03);">
+            <input type="hidden" name="camera_id" value="">
+            <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
+              <div style="flex:1 1 170px; min-width:170px;">
+                <label class="label">Title</label>
+                <input class="input" type="text" name="camera_title" value="" placeholder="New camera">
+              </div>
+              <div data-camera-reolink style="flex:2 1 260px; min-width:240px;">
+                <label class="label">Camera address</label>
+                <input class="input" type="text" name="camera_base_url" value="" placeholder="http://192.168.1.50">
+              </div>
+              <div style="flex:1 1 170px; min-width:160px;">
+                <label class="label">Camera type</label>
+                <select class="input" name="camera_vendor" data-camera-vendor>
+                  <option value="reolink" selected>Reolink</option>
+                  <option value="generic">Generic RTSP</option>
+                </select>
+              </div>
+              <div data-camera-playback-field style="flex:1 1 190px; min-width:180px;">
+                <label class="label">Playback</label>
+                <select class="input" name="camera_playback_mode" data-camera-playback>
+                  <option value="snapshot" selected>Snapshots</option>
+                  <option value="rtsp">Live stream</option>
+                </select>
+              </div>
+              <div data-camera-reolink style="flex:1 1 150px; min-width:140px;">
+                <label class="label">Username</label>
+                <input class="input" type="text" name="camera_username" value="" autocomplete="off">
+              </div>
+              <div data-camera-reolink style="flex:1 1 170px; min-width:150px;">
+                <label class="label">Password</label>
+                <input class="input" type="password" name="camera_password" placeholder="Password" autocomplete="new-password">
+              </div>
+            </div>
+            <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
+              <div data-camera-reolink style="flex:0 1 110px; min-width:100px;">
+                <label class="label">Channel</label>
+                <input class="input" type="number" name="camera_channel" min="0" step="1" value="0">
+                <div class="help">0 = Preview_01, 1 = Preview_02</div>
+              </div>
+              <div data-camera-reolink style="flex:0 1 180px; min-width:160px;">
+                <label class="label">Reolink PTZ</label>
+                <select class="input" name="camera_ptz_mode">
+                  <option value="none" selected>Off</option>
+                  <option value="reolink">Reolink HTTP</option>
+                </select>
+                <div data-camera-snapshot style="margin-top:10px;">
+                  <label class="label">Refresh ms</label>
+                  <input class="input" type="number" name="camera_refresh_ms" min="100" max="10000" step="50" value="500">
+                </div>
+              </div>
+              <div data-camera-quality style="flex:0 1 150px; min-width:130px;">
+                <label class="label">Stream quality</label>
+                <select class="input" name="camera_stream_quality">
+                  <option value="main" selected>Main</option>
+                  <option value="sub">Sub</option>
+                </select>
+              </div>
+              <div data-camera-stream style="flex:2 1 300px; min-width:260px;">
+                <label class="label">RTSP stream URL</label>
+                <input class="input" type="text" name="camera_stream" value="" placeholder="rtsp://user:pass@192.168.1.50:554/...">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="vn-modal-actions">
+          <button class="btn" type="button" data-close-modal>Cancel</button>
+          <button class="btn primary" type="submit">Save Cameras</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="vn-modal-backdrop hidden db-settings-modal" id="configAdminModal" role="dialog" aria-modal="true" aria-labelledby="configAdminTitle">
   <div class="vn-modal">
     <div class="vn-modal-header">
@@ -1115,5 +1278,28 @@ document.getElementById('btnConfirmDelete')?.addEventListener('click', () => {
     </div>
   </div>
 </div>
+
+<script>
+  (function(){
+    function updateCameraFields(row){
+      const vendor = row.querySelector('[data-camera-vendor]');
+      const playback = row.querySelector('[data-camera-playback]');
+      if (!vendor || !playback) return;
+      const isReolink = vendor.value === 'reolink';
+      if (!isReolink) playback.value = 'rtsp';
+      const isLive = playback.value === 'rtsp';
+      row.querySelectorAll('[data-camera-playback-field]').forEach(el => { el.hidden = !isReolink; });
+      row.querySelectorAll('[data-camera-reolink]').forEach(el => { el.hidden = !isReolink; });
+      row.querySelectorAll('[data-camera-snapshot]').forEach(el => { el.hidden = !isReolink || isLive; });
+      row.querySelectorAll('[data-camera-quality]').forEach(el => { el.hidden = !isReolink || !isLive; });
+      row.querySelectorAll('[data-camera-stream]').forEach(el => { el.hidden = isReolink; });
+    }
+    document.querySelectorAll('[data-camera-config-row]').forEach(row => {
+      row.querySelector('[data-camera-vendor]')?.addEventListener('change', () => updateCameraFields(row));
+      row.querySelector('[data-camera-playback]')?.addEventListener('change', () => updateCameraFields(row));
+      updateCameraFields(row);
+    });
+  })();
+</script>
 
 {% endblock %}

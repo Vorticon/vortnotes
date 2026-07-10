@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM python:3.14-alpine
 
-ARG VORTNOTES_VERSION=1.0.8
+ARG VORTNOTES_VERSION=1.0.9
 LABEL org.opencontainers.image.title="VortNotes" \
       org.opencontainers.image.description="Self-hosted notes, content, and focus apps" \
       org.opencontainers.image.version="${VORTNOTES_VERSION}" \
@@ -16,7 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates ffmpeg \
   && addgroup -g 10001 -S vortnotes \
   && adduser -u 10001 -S -D -H -G vortnotes -s /sbin/nologin vortnotes
 

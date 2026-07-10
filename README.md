@@ -5,7 +5,7 @@ content/media grids, themes, DB ZIP backup/import, and Docker/Unraid support.
 
 ![VortNotes content dashboard](docs/images/vortnotes-content.png)
 
-Current release: **1.0.8**. VortNotes is distributed under the MIT License; see
+Current release: **1.0.9**. VortNotes is distributed under the MIT License; see
 `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
 The public Docker image is multi-architecture:
@@ -163,7 +163,7 @@ docker run -d \
   -e VORTNOTES_TLS_KEY_FILE=/certs/privkey.pem \
   -v ~/vortnotes-data:/data \
   -v /path/to/certs:/certs:ro \
-  vorticon/vortnotes:1.0.8
+  vorticon/vortnotes:1.0.9
 ```
 
 Open `https://SERVER-IP:8443`. The certificate must match the hostname used by

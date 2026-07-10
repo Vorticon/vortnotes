@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -189,6 +190,62 @@ def register_settings_routes(app) -> None:
     def _home_assistant_settings() -> dict:
         return home_assistant_config(load_config())
 
+    def _camera_settings() -> list[dict]:
+        cfg = load_config()
+        raw = cfg.get("cameras")
+        if not isinstance(raw, list):
+            return []
+        cameras = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            cid = str(item.get("id") or "").strip()
+            title = str(item.get("title") or "").strip()
+            base_url = str(item.get("base_url") or "").strip()
+            vendor = str(item.get("vendor") or item.get("kind") or "reolink").strip().lower()
+            if vendor not in {"generic", "reolink"}:
+                vendor = "generic"
+            playback_mode = str(item.get("playback_mode") or "snapshot").strip().lower()
+            if playback_mode not in {"snapshot", "rtsp"}:
+                playback_mode = "snapshot"
+            if playback_mode == "snapshot" and vendor != "reolink":
+                playback_mode = "rtsp"
+            stream = str(item.get("stream") or "").strip()
+            if not cid or not title or (vendor == "reolink" and not base_url) or (vendor == "generic" and not stream):
+                continue
+            try:
+                channel = max(0, int(item.get("channel") or 0))
+            except Exception:
+                channel = 0
+            try:
+                refresh_ms = max(100, min(10000, int(item.get("refresh_ms") or 500)))
+            except Exception:
+                refresh_ms = 500
+            ptz_mode = str(item.get("ptz_mode") or "none").strip().lower()
+            if vendor != "reolink" or ptz_mode not in {"none", "reolink"}:
+                ptz_mode = "none"
+            cameras.append(
+                {
+                    "id": cid,
+                    "title": title,
+                    "vendor": vendor,
+                    "playback_mode": playback_mode,
+                    "base_url": base_url,
+                    "username": str(item.get("username") or "").strip(),
+                    "has_password": bool(item.get("password")),
+                    "channel": channel,
+                    "stream": stream,
+                    "stream_quality": (
+                        str(item.get("stream_quality") or "main").strip().lower()
+                        if str(item.get("stream_quality") or "main").strip().lower() in {"main", "sub"}
+                        else "main"
+                    ),
+                    "refresh_ms": refresh_ms,
+                    "ptz_mode": ptz_mode,
+                }
+            )
+        return cameras
+
     def _https_settings() -> dict:
         effective = direct_https_config(DATA_DIR / "config" / "config.json")
         default_cert, default_key = self_signed_tls_paths(DATA_DIR)
@@ -350,6 +407,7 @@ def register_settings_routes(app) -> None:
             "storage_stats": _storage_stats(),
             "system_stats": container_system_stats(),
             "home_assistant": _home_assistant_settings(),
+            "camera_profiles": _camera_settings(),
             "https_cfg": _https_settings(),
             "embedded_settings": True,
         }
@@ -385,6 +443,120 @@ def register_settings_routes(app) -> None:
         }
         save_config(cfg)
         flash("Home Assistant configuration saved.", "notice")
+        return redirect(url_for("settings_page"))
+
+    @app.route("/settings/cameras", methods=["POST"], endpoint="settings_cameras")
+    def settings_cameras():
+        if not admin_password_is_set() or not _is_admin_authed():
+            return redirect(url_for("settings_page", admin_login="1"))
+
+        ids = request.form.getlist("camera_id")
+        titles = request.form.getlist("camera_title")
+        base_urls = request.form.getlist("camera_base_url")
+        usernames = request.form.getlist("camera_username")
+        passwords = request.form.getlist("camera_password")
+        vendors = request.form.getlist("camera_vendor")
+        playback_modes = request.form.getlist("camera_playback_mode")
+        channels = request.form.getlist("camera_channel")
+        refreshes = request.form.getlist("camera_refresh_ms")
+        ptz_modes = request.form.getlist("camera_ptz_mode")
+        streams = request.form.getlist("camera_stream")
+        stream_qualities = request.form.getlist("camera_stream_quality")
+        deletes = set(request.form.getlist("camera_delete"))
+
+        current_cfg = load_config()
+        existing = {
+            str(c.get("id") or ""): c
+            for c in (current_cfg.get("cameras") or [])
+            if isinstance(c, dict) and str(c.get("id") or "").strip()
+        }
+
+        cameras = []
+        seen = set()
+        count = max(len(ids), len(titles), len(base_urls))
+        for idx in range(count):
+            raw_id = (ids[idx] if idx < len(ids) else "").strip()
+            title = (titles[idx] if idx < len(titles) else "").strip()
+            base_url = (base_urls[idx] if idx < len(base_urls) else "").strip().rstrip("/")
+            stream = (streams[idx] if idx < len(streams) else "").strip()
+            if raw_id and raw_id in deletes:
+                continue
+            if not title and not base_url and not stream:
+                continue
+
+            cid = raw_id
+            if not cid:
+                base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "camera"
+                cid = base
+                n = 2
+                while cid in seen or cid in existing:
+                    cid = f"{base}-{n}"
+                    n += 1
+            if cid in seen:
+                continue
+            seen.add(cid)
+
+            try:
+                channel = max(0, int((channels[idx] if idx < len(channels) else "0") or 0))
+            except Exception:
+                channel = 0
+            try:
+                refresh_ms = max(100, min(10000, int((refreshes[idx] if idx < len(refreshes) else "500") or 500)))
+            except Exception:
+                refresh_ms = 500
+            vendor = ((vendors[idx] if idx < len(vendors) else "generic") or "generic").strip().lower()
+            if vendor not in {"generic", "reolink"}:
+                vendor = "generic"
+            playback_mode = (
+                ((playback_modes[idx] if idx < len(playback_modes) else "snapshot") or "snapshot").strip().lower()
+            )
+            if playback_mode not in {"snapshot", "rtsp"}:
+                playback_mode = "snapshot"
+            if playback_mode == "snapshot" and vendor != "reolink":
+                playback_mode = "rtsp"
+            stream_quality = (
+                ((stream_qualities[idx] if idx < len(stream_qualities) else "main") or "main").strip().lower()
+            )
+            if stream_quality not in {"main", "sub"}:
+                stream_quality = "main"
+            if not title:
+                flash("Camera profiles need a title.", "error")
+                return redirect(url_for("settings_page"))
+            if vendor == "reolink" and not base_url:
+                flash("Reolink cameras need a camera address.", "error")
+                return redirect(url_for("settings_page"))
+            if vendor == "generic" and not stream:
+                flash("Generic cameras need an RTSP stream URL.", "error")
+                return redirect(url_for("settings_page"))
+            ptz_mode = ((ptz_modes[idx] if idx < len(ptz_modes) else "none") or "none").strip().lower()
+            if vendor != "reolink" or ptz_mode not in {"none", "reolink"}:
+                ptz_mode = "none"
+
+            password = passwords[idx] if idx < len(passwords) else ""
+            if not password and raw_id and isinstance(existing.get(raw_id), dict):
+                password = str(existing[raw_id].get("password") or "")
+
+            cameras.append(
+                {
+                    "id": cid,
+                    "title": title,
+                    "kind": vendor,
+                    "vendor": vendor,
+                    "playback_mode": playback_mode,
+                    "base_url": base_url,
+                    "username": (usernames[idx] if idx < len(usernames) else "").strip(),
+                    "password": password,
+                    "channel": channel,
+                    "stream": stream,
+                    "stream_quality": stream_quality,
+                    "refresh_ms": refresh_ms,
+                    "ptz_mode": ptz_mode,
+                }
+            )
+
+        current_cfg["cameras"] = cameras
+        save_config(current_cfg)
+        flash("Camera profiles saved.", "notice")
         return redirect(url_for("settings_page"))
 
     @app.route("/settings/https", methods=["POST"], endpoint="settings_https")

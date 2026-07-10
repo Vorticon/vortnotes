@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-from flask import Flask, g, has_request_context, redirect, request, send_file, session, url_for
+from flask import Flask, g, has_request_context, jsonify, redirect, request, send_file, session, url_for
 from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -410,6 +410,12 @@ def _csrf_protect():
             request.form.get("csrf_token") or request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token")
         )
         if not sent or sent != session.get("_csrf_token"):
+            wants_json = (
+                request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                or "application/json" in (request.headers.get("Accept") or "")
+            )
+            if wants_json:
+                return jsonify({"ok": False, "error": "CSRF validation failed. Please refresh and try again."}), 400
             return ("CSRF validation failed. Please refresh and try again.", 400)
     return None
 
@@ -442,9 +448,10 @@ def _set_security_headers(resp):
     resp.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; "
-        "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "connect-src 'self'; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https:; "
-        "media-src 'self' https:; frame-ancestors 'self';",
+        "media-src 'self' blob: https:; frame-ancestors 'self';",
     )
     # Echo request id (useful when reporting issues)
     try:
@@ -1458,6 +1465,22 @@ def require_db_unlocked():
         if db_guest_can(name, "content", "manage") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             if p.startswith("/content") or p.startswith("/links") or p.startswith("/media"):
                 return
+        if p.startswith("/content/camera/"):
+            if db_guest_can(name, "content", "read"):
+                if request.method == "GET" and ("/snapshot" in p or "/hls/" in p):
+                    return
+                if request.method == "POST" and (p.endswith("/stream/start") or p.endswith("/stream/stop")):
+                    return
+            if "/hls/" in p:
+                return (
+                    "Camera stream access requires unlocking this database.",
+                    401,
+                    {"Content-Type": "text/plain; charset=utf-8"},
+                )
+            wants_json = (request.headers.get("X-Requested-With") or "").lower() == "xmlhttprequest"
+            wants_json = wants_json or "application/json" in (request.headers.get("Accept") or "").lower()
+            if wants_json:
+                return jsonify({"ok": False, "error": "auth_required", "next": request.full_path}), 401
         return redirect(url_for("settings_page", name=name, next=request.full_path))
 
 

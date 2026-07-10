@@ -87,7 +87,15 @@
                 data-order-num="{{ r.order_num }}"
                 data-position="{{ r.order_num }}"
                 data-icon="{{ (r.icon or '')|e }}" data-file-mime="{{ (r.file_mime or '')|e }}" data-file-orig="{{ (r.file_original_name or '')|e }}" data-file-size-mb="{{ r.file_size_mb if r.file_size_mb is defined and r.file_size_mb is not none else '' }}"
-                data-ha-entity-id="{{ (r.ha_entity_id or '')|e }}" data-ha-entity-type="{{ (r.ha_entity_type or '')|e }}">
+                data-ha-entity-id="{{ (r.ha_entity_id or '')|e }}" data-ha-entity-type="{{ (r.ha_entity_type or '')|e }}"
+                data-camera-profile-id="{{ (r.camera.profile_id if r.camera is defined and r.camera else '')|e }}"
+                data-camera-base-url="{{ (r.camera.base_url if r.camera is defined and r.camera else '')|e }}"
+                data-camera-username="{{ (r.camera.username if r.camera is defined and r.camera else '')|e }}"
+                data-camera-channel="{{ (r.camera.channel if r.camera is defined and r.camera else 0) }}"
+                data-camera-stream="{{ (r.camera.stream if r.camera is defined and r.camera else '')|e }}"
+                data-camera-playback-mode="{{ (r.camera.playback_mode if r.camera is defined and r.camera else 'snapshot')|e }}"
+                data-camera-refresh-ms="{{ (r.camera.refresh_ms if r.camera is defined and r.camera else 500) }}"
+                data-camera-ptz-mode="{{ (r.camera.ptz_mode if r.camera is defined and r.camera else 'none')|e }}">
               <td>
                 <input type="checkbox" class="vn-row-select" name="selected_items" value="{{ r.row_type }}:{{ r.id }}" onchange="vnLinksOnSelect()" aria-label="Select {{ r.title|e }}">
               </td>
@@ -114,6 +122,8 @@
                   <div class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.url }}</div>
                 {% elif r.row_type == 'ha' %}
                   <div class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.ha_entity_id }}</div>
+                {% elif r.row_type == 'camera' %}
+                  <div class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.camera.base_url if r.camera is defined and r.camera else '' }}</div>
                 {% endif %}
               </td>
               <td>
@@ -134,6 +144,11 @@
                   {% endif %}
                 {% elif r.row_type == 'app' %}
                   <span class="pill">App</span>
+                  {% if r.group_name %}
+                    <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
+                  {% endif %}
+                {% elif r.row_type == 'camera' %}
+                  <span class="pill">Camera</span>
                   {% if r.group_name %}
                     <div class="vn-grouped-badge">inside {{ r.group_name }}</div>
                   {% endif %}
@@ -205,7 +220,7 @@
       <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div class="vn-modal-title">Icon manager</div>
-          <button class="vn-modal-close" type="button" onclick="vnCloseIconManager()">×</button>
+          <button class="vn-modal-close" type="button" onclick="vnCloseIconManager()">x</button>
         </div>
         <div class="vn-modal-body" style="padding:14px;">
           <div class="help" style="margin-bottom:10px;">Uploaded content icons are saved in a reusable icon library. Choose “Existing icon” while editing to reuse one of these.</div>
@@ -245,7 +260,7 @@
       <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div id="vnLinksModalTitle" class="vn-modal-title">Add</div>
-          <button class="vn-modal-close" type="button" onclick="vnLinksCloseModal()">×</button>
+          <button class="vn-modal-close" type="button" onclick="vnLinksCloseModal()">x</button>
         </div>
         <div class="vn-modal-body" style="padding:14px 14px 10px;">
           <form id="vnLinksModalForm" method="post" action="{{ url_for('content_item_save') }}" enctype="multipart/form-data" style="margin:0;">
@@ -261,6 +276,7 @@
                   <option value="group">Group</option>
                   <option value="file">File</option>
                   <option value="ha">Home Assistant</option>
+                  <option value="camera">Camera</option>
                   <option value="app">App</option>
                 </select>
               </div>
@@ -494,6 +510,62 @@
               </div>
             </div>
 
+            <!-- Camera fields -->
+            <div id="vnCameraFields" class="hidden" style="margin-top:10px;">
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Saved camera</div>
+                  <select class="input" name="camera_profile_id" id="vnCameraProfileId" required>
+                    <option value="">Select a camera</option>
+                    {% for camera in camera_profiles or [] %}
+                      <option value="{{ camera.id|e }}">{{ camera.title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <div class="label">Group</div>
+                  <select class="input" name="group_id" id="vnCameraGroupId" onchange="vnLinksApplyCameraGroup()">
+                    <option value="">Ungrouped</option>
+                    {% for g in groups %}
+                      <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="help" style="margin-top:10px;">
+                Camera connection, playback, credentials, and PTZ settings are managed globally in
+                <a href="{{ url_for('settings_page') }}">Settings</a>. Changes there apply to every content item using this camera.
+              </div>
+              <div class="vn-two-col">
+                <div>
+                  <div class="label">Icon</div>
+                  <select class="input" name="icon_action" id="vnCameraIconAction" onchange="vnLinksApplyIconAction()">
+                    <option value="keep">Keep current</option>
+                    <option value="library">Existing icon</option>
+                    <option value="upload">Upload</option>
+                    <option value="clear">Clear</option>
+                  </select>
+                </div>
+              </div>
+              <div id="vnCameraIconUploadWrap" style="margin-top:10px; display:none;">
+                <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnCameraIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+              </div>
+              <div id="vnCameraIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                <input type="hidden" name="icon_choice" id="vnCameraIconChoice" value="">
+                <div class="help">Choose an uploaded icon.</div>
+                <div class="vn-icon-picker" data-target="vnCameraIconChoice">
+                  {% for icon in icon_library or [] %}
+                    <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnChooseIcon(event, 'vnCameraIconChoice', this.dataset.icon)">
+                      <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                    </button>
+                  {% endfor %}
+                  {% if not icon_library %}
+                    <div class="muted">No uploaded icons yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
             <!-- Group fields -->
             <div id="vnGroupFields" class="hidden" style="margin-top:10px;">
               <div class="vn-two-col">
@@ -556,7 +628,7 @@
       <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div class="vn-modal-title">Multi-edit</div>
-          <button class="vn-modal-close" type="button" onclick="vnLinksCloseBulkEdit()">×</button>
+          <button class="vn-modal-close" type="button" onclick="vnLinksCloseBulkEdit()">x</button>
         </div>
         <div class="vn-modal-body" style="padding:14px 14px 10px;">
           <form id="vnBulkEditForm" method="post" action="{{ url_for('content_items_bulk_edit') }}" enctype="multipart/form-data" style="margin:0;">
@@ -717,7 +789,7 @@
       chip.className = 'chip';
       chip.innerHTML = `
         <span>${fieldLabel(f.field)}: <strong>${escapeHtml(f.value)}</strong></span>
-        <button type="button" aria-label="Remove filter" onclick="removeFilter(${idx})">×</button>
+        <button type="button" aria-label="Remove filter" onclick="removeFilter(${idx})">x</button>
       `;
       chips.appendChild(chip);
     });
@@ -944,7 +1016,7 @@
   }
 
   function resetIconChoices(){
-    ['vnIconChoice', 'vnFileIconChoice', 'vnGroupIconChoice', 'vnHaIconChoice', 'vnBulkIconChoice'].forEach(id => setIconChoice(id, ''));
+    ['vnIconChoice', 'vnFileIconChoice', 'vnGroupIconChoice', 'vnHaIconChoice', 'vnCameraIconChoice', 'vnBulkIconChoice'].forEach(id => setIconChoice(id, ''));
   }
 
   window.vnChooseIcon = function(ev, targetId, value){
@@ -1058,6 +1130,7 @@
     if (rt === 'file' && ($('#vnFileIconAction')?.value || '') === 'library') return !($('#vnFileIconChoice')?.value || '');
     if (rt === 'group' && ($('#vnGroupIconAction')?.value || '') === 'library') return !($('#vnGroupIconChoice')?.value || '');
     if (rt === 'ha' && ($('#vnHaIconAction')?.value || '') === 'library') return !($('#vnHaIconChoice')?.value || '');
+    if (rt === 'camera' && ($('#vnCameraIconAction')?.value || '') === 'library') return !($('#vnCameraIconChoice')?.value || '');
     return false;
   }
 
@@ -1071,6 +1144,8 @@
     const groupLib = $('#vnGroupIconLibraryWrap');
     const haUp = $('#vnHaIconUploadWrap');
     const haLib = $('#vnHaIconLibraryWrap');
+    const cameraUp = $('#vnCameraIconUploadWrap');
+    const cameraLib = $('#vnCameraIconLibraryWrap');
     if (rt === 'link'){
       const a = ($('#vnIconAction')?.value || 'keep');
       if (linkUp) linkUp.style.display = (a === 'upload') ? 'block' : 'none';
@@ -1081,6 +1156,8 @@
       if (groupLib) groupLib.style.display = 'none';
       if (haUp) haUp.style.display = 'none';
       if (haLib) haLib.style.display = 'none';
+      if (cameraUp) cameraUp.style.display = 'none';
+      if (cameraLib) cameraLib.style.display = 'none';
     } else if (rt === 'file') {
       const a = ($('#vnFileIconAction')?.value || 'keep');
       if (fileUp) fileUp.style.display = (a === 'upload') ? 'block' : 'none';
@@ -1091,6 +1168,8 @@
       if (groupLib) groupLib.style.display = 'none';
       if (haUp) haUp.style.display = 'none';
       if (haLib) haLib.style.display = 'none';
+      if (cameraUp) cameraUp.style.display = 'none';
+      if (cameraLib) cameraLib.style.display = 'none';
     } else if (rt === 'group') {
       const a = ($('#vnGroupIconAction')?.value || 'keep');
       if (groupUp) groupUp.style.display = (a === 'upload') ? 'block' : 'none';
@@ -1101,6 +1180,8 @@
       if (fileLib) fileLib.style.display = 'none';
       if (haUp) haUp.style.display = 'none';
       if (haLib) haLib.style.display = 'none';
+      if (cameraUp) cameraUp.style.display = 'none';
+      if (cameraLib) cameraLib.style.display = 'none';
     } else if (rt === 'ha') {
       const a = ($('#vnHaIconAction')?.value || 'keep');
       if (haUp) haUp.style.display = (a === 'upload') ? 'block' : 'none';
@@ -1111,6 +1192,20 @@
       if (fileLib) fileLib.style.display = 'none';
       if (groupUp) groupUp.style.display = 'none';
       if (groupLib) groupLib.style.display = 'none';
+      if (cameraUp) cameraUp.style.display = 'none';
+      if (cameraLib) cameraLib.style.display = 'none';
+    } else if (rt === 'camera') {
+      const a = ($('#vnCameraIconAction')?.value || 'keep');
+      if (cameraUp) cameraUp.style.display = (a === 'upload') ? 'block' : 'none';
+      if (cameraLib) cameraLib.style.display = (a === 'library') ? 'block' : 'none';
+      if (linkUp) linkUp.style.display = 'none';
+      if (linkLib) linkLib.style.display = 'none';
+      if (fileUp) fileUp.style.display = 'none';
+      if (fileLib) fileLib.style.display = 'none';
+      if (groupUp) groupUp.style.display = 'none';
+      if (groupLib) groupLib.style.display = 'none';
+      if (haUp) haUp.style.display = 'none';
+      if (haLib) haLib.style.display = 'none';
     } else {
       if (linkUp) linkUp.style.display = 'none';
       if (linkLib) linkLib.style.display = 'none';
@@ -1120,6 +1215,8 @@
       if (groupLib) groupLib.style.display = 'none';
       if (haUp) haUp.style.display = 'none';
       if (haLib) haLib.style.display = 'none';
+      if (cameraUp) cameraUp.style.display = 'none';
+      if (cameraLib) cameraLib.style.display = 'none';
     }
   };
 
@@ -1135,11 +1232,16 @@
     window.vnLinksApplyPositionContext();
   };
 
+  window.vnLinksApplyCameraGroup = function(){
+    window.vnLinksApplyPositionContext();
+  };
+
   function currentGroupIdForType(){
     const rt = $('#vnRowType')?.value || 'link';
     if (rt === 'link') return ($('#vnGroupId')?.value || '').trim();
     if (rt === 'file') return ($('#vnFileGroupId')?.value || '').trim();
     if (rt === 'ha') return ($('#vnHaGroupId')?.value || '').trim();
+    if (rt === 'camera') return ($('#vnCameraGroupId')?.value || '').trim();
     return '';
   }
 
@@ -1163,12 +1265,14 @@
     const groupFields = $('#vnGroupFields');
     const fileFields = $('#vnFileFields');
     const haFields = $('#vnHaFields');
+    const cameraFields = $('#vnCameraFields');
     const appFields = $('#vnAppFields');
 
     if (linkFields) linkFields.style.display = (rt === 'link') ? 'block' : 'none';
     if (groupFields) groupFields.style.display = (rt === 'group') ? 'block' : 'none';
     if (fileFields) fileFields.style.display = (rt === 'file') ? 'block' : 'none';
     if (haFields) haFields.style.display = (rt === 'ha') ? 'block' : 'none';
+    if (cameraFields) cameraFields.style.display = (rt === 'camera') ? 'block' : 'none';
     if (appFields) appFields.style.display = (rt === 'app') ? 'block' : 'none';
 
     const toggleDisabled = (root, disabled) => {
@@ -1182,6 +1286,7 @@
     toggleDisabled(groupFields, rt !== 'group');
     toggleDisabled(fileFields, rt !== 'file');
     toggleDisabled(haFields, rt !== 'ha');
+    toggleDisabled(cameraFields, rt !== 'camera');
     toggleDisabled(appFields, rt !== 'app');
 
     window.vnLinksApplyPositionContext();
@@ -1201,6 +1306,7 @@
     try{ $('#vnFileIconFile').value = ''; }catch(e){}
     try{ $('#vnGroupIconFile').value = ''; }catch(e){}
     try{ $('#vnHaIconFile').value = ''; }catch(e){}
+    try{ $('#vnCameraIconFile').value = ''; }catch(e){}
     try{ $('#vnFileFile').value = ''; }catch(e){}
     resetIconChoices();
 
@@ -1223,6 +1329,10 @@
     } else if (rt === 'app'){
       $('#vnAppId').value = row.dataset.url || 'tetris';
       $('#vnAppGroupId').value = row.dataset.groupId || '';
+    } else if (rt === 'camera'){
+      $('#vnCameraProfileId').value = row.dataset.cameraProfileId || '';
+      $('#vnCameraGroupId').value = row.dataset.groupId || '';
+      $('#vnCameraIconAction').value = 'keep';
     } else {
       $('#vnGroupIconAction').value = 'keep';
     }
@@ -1247,6 +1357,7 @@
     try{ $('#vnFileFile').value = ''; }catch(e){}
     try{ $('#vnFileIconFile').value = ''; }catch(e){}
     try{ $('#vnHaIconFile').value = ''; }catch(e){}
+    try{ $('#vnCameraIconFile').value = ''; }catch(e){}
     resetIconChoices();
     $('#vnFileGroupId').value = '';
     $('#vnFileIconAction').value = 'keep';
@@ -1256,6 +1367,9 @@
     $('#vnHaIconAction').value = 'keep';
     $('#vnAppId').value = 'tetris';
     $('#vnAppGroupId').value = '';
+    $('#vnCameraProfileId').value = '';
+    $('#vnCameraGroupId').value = '';
+    $('#vnCameraIconAction').value = 'keep';
     vnHaClearPicker();
 
     $('#vnGroupIconAction').value = 'keep';
@@ -1623,8 +1737,12 @@
   {% else %}
     <div style="height:12px;"></div>
 
-    {% if items is defined and items|length > 0 %}
-      <div id="vnContentGrid" class="links-desktop-grid" style="margin-top:10px;" data-page="{{ page or 1 }}" data-page-size="32">
+      <div id="vnContentGrid" class="links-desktop-grid" style="margin-top:10px; min-height:220px; width:100%; align-content:start;" data-page="{{ page or 1 }}" data-page-size="32">
+        {% if items is not defined or items|length == 0 %}
+          <div class="muted" style="grid-column:1 / -1; padding:48px 16px; text-align:center; pointer-events:none;">
+            No content yet. Right-click here to add your first item.
+          </div>
+        {% endif %}
         {% for it in items %}
           {% set item_page = ((it.ord or 0) // 32) + 1 %}
           {% set item_pos = (it.ord or 0) % 32 %}
@@ -1683,6 +1801,33 @@
                       <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
                     {% else %}
                       <div class="attach-fileicon" aria-hidden="true">HA</div>
+                    {% endif %}
+                  </div>
+                  <div class="attach-name">{{ it.title }}</div>
+                </div>
+              </div>
+            {% elif it.item_kind and it.item_kind == 'camera' %}
+              {% set camera = it.camera if it.camera is defined else {} %}
+              <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
+                   data-item-type="{{ it.item_type }}" data-item-id="{{ it.id }}" {% if can_edit %}draggable="true"{% endif %}
+                   data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="_self" data-kind="camera"
+                   data-embed="0" data-group-id=""
+                   data-camera-profile-id="{{ (camera.profile_id if camera else '')|e }}"
+                   data-camera-base-url="{{ (camera.base_url if camera else '')|e }}"
+                   data-camera-channel="{{ (camera.channel if camera else 0) }}"
+                   data-camera-stream="{{ (camera.stream if camera else '')|e }}"
+                   data-camera-playback-mode="{{ (camera.playback_mode if camera else 'snapshot')|e }}"
+                   data-camera-refresh-ms="{{ (camera.refresh_ms if camera else 500) }}"
+                   data-camera-ptz-mode="{{ (camera.ptz_mode if camera else 'none')|e }}"
+                   data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
+                   onclick='vnOpenCameraModal({{ it.id|tojson }}, {{ it.title|tojson }}, {{ (camera.ptz_mode if camera else "none")|tojson }}, {{ (camera.refresh_ms if camera else 500)|tojson }}, {{ (camera.playback_mode if camera else "snapshot")|tojson }})'
+                   onkeypress='if(event.key==="Enter"){ vnOpenCameraModal({{ it.id|tojson }}, {{ it.title|tojson }}, {{ (camera.ptz_mode if camera else "none")|tojson }}, {{ (camera.refresh_ms if camera else 500)|tojson }}, {{ (camera.playback_mode if camera else "snapshot")|tojson }}); }'>
+                <div class="attach-link" draggable="false" title="{{ it.title|e }}">
+                  <div class="attach-thumb link-thumb">
+                    {% if it.icon_stored_name %}
+                      <img src="{{ upload_prefix }}/{{ it.icon_stored_name }}" alt="{{ it.title|e }}">
+                    {% else %}
+                      <div class="attach-fileicon" aria-hidden="true">CAM</div>
                     {% endif %}
                   </div>
                   <div class="attach-name">{{ it.title }}</div>
@@ -1796,10 +1941,6 @@
           {% endif %}
         </div>
       {% endif %}
-    {% else %}
-      <div class="muted" style="text-align:center; padding: 16px 0;">No links yet.</div>
-    {% endif %}
-
     {% if can_edit %}
       <script>
         (function(){
@@ -2196,7 +2337,7 @@
           }
 
           function vnContentResetIconChoices(){
-            ['vnContentIconChoice', 'vnContentFileIconChoice', 'vnContentGroupIconChoice', 'vnContentHaIconChoice'].forEach((id) => vnContentSetIconChoice(id, ''));
+            ['vnContentIconChoice', 'vnContentFileIconChoice', 'vnContentGroupIconChoice', 'vnContentHaIconChoice', 'vnContentCameraIconChoice'].forEach((id) => vnContentSetIconChoice(id, ''));
           }
 
           window.vnContentChooseIcon = function(ev, targetId, value){
@@ -2284,7 +2425,8 @@
               ['link', 'vnContentIconAction', 'vnContentIconUploadWrap', 'vnContentIconLibraryWrap'],
               ['file', 'vnContentFileIconAction', 'vnContentFileIconUploadWrap', 'vnContentFileIconLibraryWrap'],
               ['group', 'vnContentGroupIconAction', 'vnContentGroupIconUploadWrap', 'vnContentGroupIconLibraryWrap'],
-              ['ha', 'vnContentHaIconAction', 'vnContentHaIconUploadWrap', 'vnContentHaIconLibraryWrap']
+              ['ha', 'vnContentHaIconAction', 'vnContentHaIconUploadWrap', 'vnContentHaIconLibraryWrap'],
+              ['camera', 'vnContentCameraIconAction', 'vnContentCameraIconUploadWrap', 'vnContentCameraIconLibraryWrap']
             ];
             defs.forEach(([kind, actionId, uploadId, libraryId]) => {
               const action = document.getElementById(actionId)?.value || 'keep';
@@ -2305,6 +2447,7 @@
               ['file', document.getElementById('vnContentFileFields')],
               ['group', document.getElementById('vnContentGroupFields')],
               ['ha', document.getElementById('vnContentHaFields')],
+              ['camera', document.getElementById('vnContentCameraFields')],
               ['app', document.getElementById('vnContentAppFields')]
             ];
             sections.forEach(([kind, section]) => {
@@ -2341,6 +2484,7 @@
             try{ document.getElementById('vnContentFileIconFile').value = ''; }catch(e){}
             try{ document.getElementById('vnContentGroupIconFile').value = ''; }catch(e){}
             try{ document.getElementById('vnContentHaIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentCameraIconFile').value = ''; }catch(e){}
             vnContentResetIconChoices();
             document.getElementById('vnContentEditTitle').value = '';
             document.getElementById('vnContentUrl').value = '';
@@ -2353,12 +2497,15 @@
             document.getElementById('vnContentHaEntityId').value = '';
             document.getElementById('vnContentAppId').value = 'tetris';
             document.getElementById('vnContentAppGroupId').value = '';
+            document.getElementById('vnContentCameraProfileId').value = '';
+            document.getElementById('vnContentCameraGroupId').value = '';
             vnContentHaClearPicker();
             vnContentHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
             document.getElementById('vnContentIconAction').value = 'keep';
             document.getElementById('vnContentFileIconAction').value = 'keep';
             document.getElementById('vnContentGroupIconAction').value = 'keep';
             document.getElementById('vnContentHaIconAction').value = 'keep';
+            document.getElementById('vnContentCameraIconAction').value = 'keep';
           }
 
           window.vnContentOpenAdd = function(groupId){
@@ -2380,6 +2527,7 @@
             document.getElementById('vnContentFileGroupId').value = groupId;
             document.getElementById('vnContentHaGroupId').value = groupId;
             document.getElementById('vnContentAppGroupId').value = groupId;
+            document.getElementById('vnContentCameraGroupId').value = groupId;
             const del = document.getElementById('vnContentEditDeleteBtn');
             if (del) del.style.display = 'none';
             window.vnContentEditApplyType();
@@ -2406,7 +2554,8 @@
               ['link', 'vnContentIconAction', 'vnContentIconChoice'],
               ['file', 'vnContentFileIconAction', 'vnContentFileIconChoice'],
               ['group', 'vnContentGroupIconAction', 'vnContentGroupIconChoice'],
-              ['ha', 'vnContentHaIconAction', 'vnContentHaIconChoice']
+              ['ha', 'vnContentHaIconAction', 'vnContentHaIconChoice'],
+              ['camera', 'vnContentCameraIconAction', 'vnContentCameraIconChoice']
             ];
             for (const [kind, actionId, choiceId] of choiceChecks){
               if (rt === kind && (document.getElementById(actionId)?.value || '') === 'library' && !(document.getElementById(choiceId)?.value || '')){
@@ -2449,6 +2598,7 @@
             try{ document.getElementById('vnContentFileIconFile').value = ''; }catch(e){}
             try{ document.getElementById('vnContentGroupIconFile').value = ''; }catch(e){}
             try{ document.getElementById('vnContentHaIconFile').value = ''; }catch(e){}
+            try{ document.getElementById('vnContentCameraIconFile').value = ''; }catch(e){}
             vnContentResetIconChoices();
 
             document.getElementById('vnContentUrl').value = item.dataset.url || '';
@@ -2461,12 +2611,15 @@
             document.getElementById('vnContentHaEntityId').value = item.dataset.haEntityId || '';
             document.getElementById('vnContentAppId').value = item.dataset.url || 'tetris';
             document.getElementById('vnContentAppGroupId').value = item.dataset.groupId || '';
+            document.getElementById('vnContentCameraProfileId').value = item.dataset.cameraProfileId || '';
+            document.getElementById('vnContentCameraGroupId').value = item.dataset.groupId || '';
             vnContentHaClearPicker();
             vnContentHaSetPickerStatus('Load scenes/scripts from Home Assistant after saving URL and token in Settings.');
             document.getElementById('vnContentIconAction').value = 'keep';
             document.getElementById('vnContentFileIconAction').value = 'keep';
             document.getElementById('vnContentGroupIconAction').value = 'keep';
             document.getElementById('vnContentHaIconAction').value = 'keep';
+            document.getElementById('vnContentCameraIconAction').value = 'keep';
             window.vnContentEditApplyType();
             const del = document.getElementById('vnContentEditDeleteBtn');
             if (del) del.style.display = '';
@@ -2660,7 +2813,7 @@
         <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
           <div class="vn-modal-header">
             <div class="vn-modal-title" id="vnContentEditModalTitle">Edit item</div>
-            <button class="vn-modal-close" type="button" onclick="vnContentCloseEditModal()">&times;</button>
+            <button class="vn-modal-close" type="button" onclick="vnContentCloseEditModal()">x</button>
           </div>
           <div class="vn-modal-body" style="padding:14px 14px 10px;">
             <form id="vnContentEditForm" method="post" action="{{ url_for('content_item_save') }}" enctype="multipart/form-data" style="margin:0;" onsubmit="return vnContentPrepareEditSubmit()">
@@ -2681,6 +2834,7 @@
                     <option value="group">Group</option>
                     <option value="file">File</option>
                     <option value="ha">Home Assistant</option>
+                    <option value="camera">Camera</option>
                     <option value="app">App</option>
                   </select>
                 </div>
@@ -2868,6 +3022,61 @@
                 </div>
               </div>
 
+              <div id="vnContentCameraFields" class="hidden" style="margin-top:10px;">
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Saved camera</div>
+                    <select class="input" name="camera_profile_id" id="vnContentCameraProfileId" required>
+                      <option value="">Select a camera</option>
+                      {% for camera in camera_profiles or [] %}
+                        <option value="{{ camera.id|e }}">{{ camera.title }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <div class="label">Group</div>
+                    <select class="input" name="group_id" id="vnContentCameraGroupId">
+                      <option value="">Ungrouped</option>
+                      {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="help" style="margin-top:10px;">
+                  Camera connection, playback, credentials, and PTZ settings are managed globally in
+                  <a href="{{ url_for('settings_page') }}">Settings</a>. Changes there apply to every content item using this camera.
+                </div>
+                <div class="vn-two-col">
+                  <div>
+                    <div class="label">Icon</div>
+                    <select class="input" name="icon_action" id="vnContentCameraIconAction" onchange="vnContentEditApplyIconAction()">
+                      <option value="keep">Keep current</option>
+                      <option value="library">Existing icon</option>
+                      <option value="upload">Upload</option>
+                      <option value="clear">Clear</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="vnContentCameraIconUploadWrap" style="margin-top:10px; display:none;">
+                  <input class="input" style="padding:8px 10px;" type="file" name="icon_file" id="vnContentCameraIconFile" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.ico,image/*">
+                </div>
+                <div id="vnContentCameraIconLibraryWrap" class="vn-icon-library-wrap" style="display:none;">
+                  <input type="hidden" name="icon_choice" id="vnContentCameraIconChoice" value="">
+                  <div class="help">Choose an uploaded icon.</div>
+                  <div class="vn-icon-picker vn-content-icon-picker" data-target="vnContentCameraIconChoice">
+                    {% for icon in icon_library or [] %}
+                      <button type="button" class="vn-icon-choice" data-icon="{{ icon.path|e }}" title="{{ icon.name|e }}" onclick="vnContentChooseIcon(event, 'vnContentCameraIconChoice', this.dataset.icon)">
+                        <img src="{{ upload_prefix }}/{{ icon.path }}" alt="">
+                      </button>
+                    {% endfor %}
+                    {% if not icon_library %}
+                      <div class="muted">No uploaded icons yet.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
               <div id="vnContentGroupFields" class="hidden" style="margin-top:10px;">
                 <div>
                   <div class="label">Icon</div>
@@ -2944,7 +3153,7 @@
         <div class="vn-modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
           <div class="vn-modal-header">
             <div class="vn-modal-title">Edit item</div>
-            <button class="vn-modal-close" type="button" onclick="vnCloseContentProps()">&times;</button>
+            <button class="vn-modal-close" type="button" onclick="vnCloseContentProps()">x</button>
           </div>
           <div class="vn-modal-body">
             <input type="hidden" id="vnPropsType" value="">
@@ -2996,7 +3205,7 @@
       <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div id="vnGroupModalTitle" class="vn-modal-title">Group</div>
-          <button class="vn-modal-close" type="button" onclick="vnCloseGroupModal()">×</button>
+          <button class="vn-modal-close" type="button" onclick="vnCloseGroupModal()">x</button>
         </div>
         <div class="vn-modal-body" style="padding: 12px 12px 16px;">
           <div id="vnGroupModalBody"></div>
@@ -3010,7 +3219,7 @@
       <div class="vn-modal vn-wide" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div class="vn-modal-title">YouTube</div>
-          <button class="vn-modal-close" type="button" onclick="vnCloseYouTubeModal()">×</button>
+          <button class="vn-modal-close" type="button" onclick="vnCloseYouTubeModal()">x</button>
         </div>
         <div class="vn-modal-body" style="padding:12px;">
           <div class="vn-video-frame">
@@ -3027,10 +3236,37 @@
       <div id="contentViewModal" class="vn-modal vn-media-modal" onclick="event.stopPropagation()">
         <div class="vn-modal-header">
           <div id="contentViewTitle" class="vn-modal-title">Media</div>
-<button type="button" class="vn-modal-close" id="contentViewCloseBtn" aria-label="Close" onclick="vnCloseContentMedia()">×</button>
+<button type="button" class="vn-modal-close" id="contentViewCloseBtn" aria-label="Close" onclick="vnCloseContentMedia()">x</button>
         </div>
         <div class="vn-modal-body">
           <div id="contentViewBody" class="vn-media-view"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Camera viewer modal -->
+    <div id="vnCameraModalBackdrop" class="vn-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="vnCameraTitle" onclick="vnCloseCameraModal(event)">
+      <div id="vnCameraModal" class="vn-modal vn-wide" onclick="event.stopPropagation()">
+        <div class="vn-modal-header">
+          <div id="vnCameraTitle" class="vn-modal-title">Camera</div>
+          <button type="button" class="vn-modal-close" aria-label="Close" onclick="vnCloseCameraModal()">x</button>
+        </div>
+        <div class="vn-modal-body" style="padding:12px;">
+          <div class="vn-camera-viewer">
+            <img id="vnCameraImage" alt="" draggable="false">
+            <video id="vnCameraVideo" controls autoplay playsinline muted hidden></video>
+            <div id="vnCameraStatus" class="vn-camera-status muted">Loading camera...</div>
+          </div>
+          <div id="vnCameraPtzControls" class="vn-camera-ptz" hidden>
+            <button class="btn" type="button" data-camera-action="up" onpointerdown="vnCameraPtz(event,'up')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Up</button>
+            <button class="btn" type="button" data-camera-action="left" onpointerdown="vnCameraPtz(event,'left')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Left</button>
+            <button class="btn" type="button" data-camera-action="stop" onclick="vnCameraPtz(event,'stop')">Stop</button>
+            <button class="btn" type="button" data-camera-action="right" onpointerdown="vnCameraPtz(event,'right')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Right</button>
+            <button class="btn" type="button" data-camera-action="down" onpointerdown="vnCameraPtz(event,'down')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Down</button>
+            <button class="btn" type="button" data-camera-action="zoom_in" onpointerdown="vnCameraPtz(event,'zoom_in')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Zoom +</button>
+            <button class="btn" type="button" data-camera-action="zoom_out" onpointerdown="vnCameraPtz(event,'zoom_out')" onpointerup="vnCameraPtz(event,'stop')" onpointercancel="vnCameraPtz(event,'stop')">Zoom -</button>
+          </div>
+          <div id="vnCameraRtspNote" class="help" style="display:none; margin-top:10px;"></div>
         </div>
       </div>
     </div>
@@ -3057,11 +3293,13 @@
             vnPortalToBody('vnGroupModalBackdrop');
             vnPortalToBody('vnYTModalBackdrop');
             vnPortalToBody('contentViewBackdrop');
+            vnPortalToBody('vnCameraModalBackdrop');
           });
         } else {
           vnPortalToBody('vnGroupModalBackdrop');
           vnPortalToBody('vnYTModalBackdrop');
           vnPortalToBody('contentViewBackdrop');
+          vnPortalToBody('vnCameraModalBackdrop');
         }
 
         function getYouTubeId(u){
@@ -3230,6 +3468,14 @@ body.innerHTML = '';
             tile.dataset.embed = String(it.embed || 0);
             tile.dataset.haEntityId = it.ha_entity_id || '';
             tile.dataset.haEntityType = it.ha_entity_type || '';
+            const camera = it.camera || {};
+            tile.dataset.cameraBaseUrl = camera.base_url || '';
+            tile.dataset.cameraProfileId = camera.profile_id || '';
+            tile.dataset.cameraChannel = String(camera.channel || 0);
+            tile.dataset.cameraStream = camera.stream || '';
+            tile.dataset.cameraPlaybackMode = camera.playback_mode || 'snapshot';
+            tile.dataset.cameraRefreshMs = String(camera.refresh_ms || 500);
+            tile.dataset.cameraPtzMode = camera.ptz_mode || 'none';
             tile.dataset.page = String(payload.page || 1);
             tile.dataset.position = String(Number(it.order_num || 0) % 32);
             tile.dataset.totalPages = String(payload.total_pages || 1);
@@ -3258,6 +3504,14 @@ body.innerHTML = '';
               a.title = it.title || 'Home Assistant action';
               a.onclick = () => window.vnActivateHaItem(it.id, it.title || '');
               a.onkeypress = (e) => { if (e.key === 'Enter') window.vnActivateHaItem(it.id, it.title || ''); };
+            } else if (kind === 'camera'){
+              a = document.createElement('div');
+              a.className = 'attach-link';
+              a.setAttribute('role','button');
+              a.setAttribute('tabindex','0');
+              a.title = it.title || 'Camera';
+              a.onclick = () => window.vnOpenCameraModal(it.id, it.title || 'Camera', camera.ptz_mode || 'none', camera.refresh_ms || 500, camera.playback_mode || 'snapshot');
+              a.onkeypress = (e) => { if (e.key === 'Enter') window.vnOpenCameraModal(it.id, it.title || 'Camera', camera.ptz_mode || 'none', camera.refresh_ms || 500, camera.playback_mode || 'snapshot'); };
             } else if (kind === 'file'){
               const titleTxt = it.file_original_name || it.title || 'File';
               if (fm.startsWith('image/') || fm.startsWith('video/') || fm.startsWith('audio/')){
@@ -3308,6 +3562,9 @@ body.innerHTML = '';
                 thumb.appendChild(fallback);
               } else if (kind === 'ha'){
                 fallback.textContent = 'HA';
+                thumb.appendChild(fallback);
+              } else if (kind === 'camera'){
+                fallback.textContent = 'CAM';
                 thumb.appendChild(fallback);
               } else if (kind === 'file'){
                 if (fm.startsWith('image/')){
@@ -3631,6 +3888,260 @@ const m = String(mime||'').toLowerCase();
     if (body) body.innerHTML = '';
   };
 
+  let vnCameraTimer = null;
+  let vnCameraCurrentId = null;
+  let vnCameraObjectUrl = '';
+  let vnCameraLoading = false;
+  let vnCameraPtzEnabled = false;
+  let vnCameraPlaybackMode = 'snapshot';
+
+  function vnCameraSnapshotUrl(id){
+    return '/content/camera/' + encodeURIComponent(id) + '/snapshot?t=' + Date.now();
+  }
+
+  function vnSetCameraStatus(text){
+    const status = document.getElementById('vnCameraStatus');
+    if (status) status.textContent = text || '';
+  }
+
+  async function vnCameraJsonResponse(resp, fallback){
+    const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+    const text = await resp.text();
+    if (ctype.includes('application/json')){
+      try{ return JSON.parse(text || '{}'); }catch(_){}
+    }
+    const plain = (text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const detail = plain || fallback || 'Camera request failed.';
+    return {ok: false, error: detail.slice(0, 240)};
+  }
+
+  function vnLoadHlsJs(){
+    if (window.Hls) return Promise.resolve(window.Hls);
+    if (window.vnHlsJsPromise) return window.vnHlsJsPromise;
+    window.vnHlsJsPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js';
+      script.async = true;
+      script.onload = () => resolve(window.Hls);
+      script.onerror = () => reject(new Error('Unable to load hls.js for this browser.'));
+      document.head.appendChild(script);
+    });
+    return window.vnHlsJsPromise;
+  }
+
+  function vnCameraCanUseNativeHls(video){
+    if (!video || typeof video.canPlayType !== 'function') return false;
+    const ua = navigator.userAgent || '';
+    const isChromium = /\b(Edg|Chrome|Chromium|OPR)\//.test(ua);
+    if (isChromium) return false;
+    return !!(video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL'));
+  }
+
+  async function vnStartCameraStream(){
+    const video = document.getElementById('vnCameraVideo');
+    if (!video || !vnCameraCurrentId) return;
+    vnSetCameraStatus('Starting RTSP stream...');
+    try{
+      const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+      const resp = await fetch('/content/camera/' + encodeURIComponent(vnCameraCurrentId) + '/stream/start', {
+        method: 'POST',
+        headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': token}
+      });
+      const data = await vnCameraJsonResponse(resp, 'Unable to start RTSP stream.');
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Unable to start RTSP stream.');
+      if (window.vnCameraHls){
+        try{ window.vnCameraHls.destroy(); }catch(_){}
+        window.vnCameraHls = null;
+      }
+      try {
+        const Hls = await vnLoadHlsJs();
+        if (!Hls || !Hls.isSupported()) throw new Error('This browser cannot play HLS streams.');
+        window.vnCameraHls = new Hls({enableWorker: false, lowLatencyMode: true, liveSyncDurationCount: 2});
+        window.vnCameraHls.loadSource(data.playlist);
+        window.vnCameraHls.attachMedia(video);
+        window.vnCameraHls.on(Hls.Events.MANIFEST_PARSED, () => {
+          try{
+            const playResult = video.play();
+            if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
+          }catch(_){}
+          vnSetCameraStatus('');
+        });
+        window.vnCameraHls.on(Hls.Events.ERROR, (_event, info) => {
+          if (info && info.fatal) {
+            vnSetCameraStatus(info.details || info.type || 'Unable to play RTSP stream.');
+          }
+        });
+      } catch (hlsErr) {
+        if (vnCameraCanUseNativeHls(video)){
+          video.src = data.playlist;
+          try{
+            const playResult = video.play();
+            if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
+          }catch(_){}
+          vnSetCameraStatus('');
+        } else {
+          throw hlsErr;
+        }
+      }
+    }catch(err){
+      vnSetCameraStatus(err && err.message ? err.message : 'Unable to start RTSP stream.');
+    }
+  }
+
+  function vnStopCameraStream(){
+    if (!vnCameraCurrentId) return;
+    try{
+      const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+      fetch('/content/camera/' + encodeURIComponent(vnCameraCurrentId) + '/stream/stop', {
+        method: 'POST',
+        keepalive: true,
+        headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': token}
+      }).catch(() => {});
+    }catch(_){}
+  }
+
+  async function vnRefreshCameraImage(){
+    const img = document.getElementById('vnCameraImage');
+    if (!img || !vnCameraCurrentId) return;
+    if (vnCameraLoading) return;
+    vnCameraLoading = true;
+    try{
+      const resp = await fetch(vnCameraSnapshotUrl(vnCameraCurrentId), {
+        headers: {'Accept': 'image/*, text/plain', 'X-Requested-With': 'XMLHttpRequest'}
+      });
+      if (!resp.ok){
+        const text = await resp.text();
+        throw new Error(text || ('Snapshot failed with HTTP ' + resp.status));
+      }
+      const blob = await resp.blob();
+      if (!blob.type || !blob.type.startsWith('image/')){
+        throw new Error('Camera returned ' + (blob.type || 'unknown content') + ' instead of an image.');
+      }
+      const previousUrl = vnCameraObjectUrl;
+      const nextUrl = URL.createObjectURL(blob);
+      img.onload = () => {
+        if (previousUrl) URL.revokeObjectURL(previousUrl);
+        vnSetCameraStatus('');
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(nextUrl);
+        vnCameraObjectUrl = previousUrl;
+        if (previousUrl) img.src = previousUrl;
+        vnSetCameraStatus('Unable to decode camera image.');
+      };
+      vnCameraObjectUrl = nextUrl;
+      img.src = nextUrl;
+    }catch(err){
+      vnSetCameraStatus(err && err.message ? err.message : 'Unable to load camera snapshot.');
+    }finally{
+      vnCameraLoading = false;
+    }
+  }
+
+  window.vnOpenCameraModal = window.vnOpenCameraModal || function(id, title, ptzMode, refreshMs, playbackMode){
+    const bd = document.getElementById('vnCameraModalBackdrop');
+    const img = document.getElementById('vnCameraImage');
+    const video = document.getElementById('vnCameraVideo');
+    const tt = document.getElementById('vnCameraTitle');
+    const ptz = document.getElementById('vnCameraPtzControls');
+    const note = document.getElementById('vnCameraRtspNote');
+    if (!bd || !img) return;
+    portalToBody(bd);
+    vnCameraCurrentId = String(id || '');
+    vnCameraPlaybackMode = String(playbackMode || 'snapshot');
+    if (tt) tt.textContent = title || 'Camera';
+    vnCameraPtzEnabled = (String(ptzMode || 'none') === 'reolink');
+    if (ptz){
+      ptz.hidden = !vnCameraPtzEnabled;
+      ptz.querySelectorAll('button').forEach(btn => { btn.disabled = !vnCameraPtzEnabled; });
+    }
+    if (note){
+      note.style.display = 'none';
+      note.textContent = '';
+    }
+    img.onload = null;
+    img.onerror = null;
+    if (video){
+      if (window.vnCameraHls){
+        try{ window.vnCameraHls.destroy(); }catch(_){}
+        window.vnCameraHls = null;
+      }
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      video.hidden = (vnCameraPlaybackMode !== 'rtsp');
+    }
+    if (img) img.hidden = (vnCameraPlaybackMode === 'rtsp');
+    vnSetCameraStatus('Loading camera...');
+    bd.classList.remove('hidden');
+    clearInterval(vnCameraTimer);
+    if (vnCameraPlaybackMode === 'rtsp'){
+      vnStartCameraStream();
+    } else {
+      vnRefreshCameraImage();
+      const ms = Math.max(100, Math.min(10000, parseInt(refreshMs || '500', 10) || 500));
+      vnCameraTimer = setInterval(vnRefreshCameraImage, ms);
+    }
+    try{ bd.querySelector('.vn-modal-close')?.focus(); }catch(e){}
+  };
+
+  window.vnCloseCameraModal = window.vnCloseCameraModal || function(ev){
+    try{ if (ev && ev.target && ev.target.closest && ev.target.closest('.vn-modal')) return; }catch(e){}
+    clearInterval(vnCameraTimer);
+    // Let the server reap idle RTSP/HLS workers shortly after use. Some browsers
+    // send modal/page cleanup events while HLS.js is still attaching media.
+    vnCameraTimer = null;
+    vnCameraCurrentId = null;
+    vnCameraLoading = false;
+    vnCameraPtzEnabled = false;
+    vnCameraPlaybackMode = 'snapshot';
+    const bd = document.getElementById('vnCameraModalBackdrop');
+    const img = document.getElementById('vnCameraImage');
+    const video = document.getElementById('vnCameraVideo');
+    if (bd) bd.classList.add('hidden');
+    if (img) img.removeAttribute('src');
+    if (video){
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    if (vnCameraObjectUrl) URL.revokeObjectURL(vnCameraObjectUrl);
+    vnCameraObjectUrl = '';
+  };
+
+  window.vnCameraPtz = window.vnCameraPtz || async function(e, action){
+    if (e){
+      try{ e.preventDefault(); e.stopPropagation(); }catch(_){}
+    }
+    if (!vnCameraCurrentId || !vnCameraPtzEnabled) return;
+    action = String(action || 'stop');
+    const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    try{
+      const resp = await fetch('/content/camera/' + encodeURIComponent(vnCameraCurrentId) + '/ptz', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': token
+        },
+        body: JSON.stringify({action: action, speed: 32})
+      });
+      const data = await vnCameraJsonResponse(resp, 'Camera control failed.');
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Camera control failed.');
+      vnSetCameraStatus(data.action === 'stop' ? '' : 'Sent ' + data.action.replace('_', ' ') + '.');
+    }catch(err){
+      vnSetCameraStatus(err && err.message ? err.message : 'Camera control failed.');
+    }
+  };
+
+  document.addEventListener('click', async function(e){
+    const btn = e.target && e.target.closest ? e.target.closest('[data-camera-action]') : null;
+    if (!btn || !vnCameraCurrentId) return;
+    if (btn.getAttribute('onpointerdown') || btn.getAttribute('onclick')) return;
+    window.vnCameraPtz(e, btn.dataset.cameraAction || 'stop');
+  });
+
   // --- Group modal with pagination (8-wide grid CSS already in template) ---
   (function(){
     const backdrop = document.getElementById('vnGroupModalBackdrop');
@@ -3775,6 +4286,16 @@ const m = String(mime||'').toLowerCase();
   })();
 })();
 </script>
+<style>
+  .vn-camera-viewer{position:relative;display:grid;place-items:center;min-height:260px;background:#05070b;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden}
+  .vn-camera-viewer img{display:block;max-width:100%;max-height:min(68vh,720px);object-fit:contain}
+  .vn-camera-viewer video{display:block;width:100%;max-height:min(68vh,720px);background:#05070b}
+  .vn-camera-viewer img[hidden], .vn-camera-viewer video[hidden]{display:none !important}
+  .vn-camera-status{position:absolute;left:10px;bottom:10px;padding:6px 9px;border-radius:6px;background:rgba(0,0,0,.58);font-size:13px}
+  .vn-camera-ptz{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:10px}
+  .vn-camera-ptz[hidden]{display:none !important}
+  .vn-camera-ptz .btn{min-width:74px}
+</style>
 </div>
 
 {% endblock %}

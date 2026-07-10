@@ -1628,6 +1628,17 @@ body[data-btn-hover-outline="1"] .seg-group .btn:hover::after{
   width: min(1040px, calc(100vw - 24px));
 }
 
+.vn-camera-config-modal{
+  max-height: min(92vh, calc(100vh - 24px));
+  display: flex;
+  flex-direction: column;
+}
+
+.vn-camera-config-modal .vn-modal-body{
+  overflow: auto;
+  min-height: 0;
+}
+
 .vn-media-modal{
   width: auto;
   max-width: min(92vw, 980px);

@@ -6,17 +6,24 @@ Items are stored per selected database and rendered as an icon grid.
 
 from __future__ import annotations
 
+import ipaddress
+import json
 import re
+import shutil
+import subprocess
+import threading
+import time
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
-from flask import abort, jsonify, redirect, render_template, request, url_for
+from flask import Response, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 
 def register_content_routes(app) -> None:
     # Late imports to avoid cycles.
     from ..home_assistant import HomeAssistantError, call_home_assistant
+    from ..settings import DATA_DIR
 
     CONTENT_APPS = {
         "tetris": {"title": "Falling Blocks", "description": "Stack falling shapes and clear complete rows"},
@@ -45,6 +52,11 @@ def register_content_routes(app) -> None:
         touch_db_last_access,
         unique_store_name,
     )
+
+    CAMERA_HLS_DIR = DATA_DIR / "camera_hls"
+    CAMERA_HLS_DIR.mkdir(parents=True, exist_ok=True)
+    _camera_streams: dict[int, dict] = {}
+    _camera_streams_lock = threading.Lock()
 
     def _require_read_access(next_url: str):
         name = _current_db_name()
@@ -116,6 +128,500 @@ def register_content_routes(app) -> None:
         if not gate:
             return None
         return jsonify({"ok": False, "error": "auth_required"}), 401
+
+    def _plain_auth_gate(gate):
+        if not gate:
+            return None
+        return (
+            "Camera stream access requires unlocking this database.",
+            401,
+            {"Content-Type": "text/plain; charset=utf-8"},
+        )
+
+    def _is_local_camera_host(host: str) -> bool:
+        host = (host or "").strip().lower()
+        if not host:
+            return False
+        if host in {"localhost"} or host.endswith(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+            return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+        except ValueError:
+            return "." not in host
+
+    def _normalize_camera_base(raw: str) -> str:
+        raw = (raw or "").strip().rstrip("/")
+        if not raw:
+            return ""
+        if "://" not in raw:
+            raw = "http://" + raw
+        try:
+            parsed = urlparse(raw)
+        except Exception:
+            return ""
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        if not _is_local_camera_host(parsed.hostname or ""):
+            return ""
+        return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+    def _normalize_camera_rtsp(raw: str) -> str:
+        raw = (raw or "").strip()
+        if not raw:
+            return ""
+        try:
+            parsed = urlparse(raw)
+        except Exception:
+            return ""
+        if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.netloc:
+            return ""
+        if not _is_local_camera_host(parsed.hostname or ""):
+            return ""
+        return raw
+
+    def _normalize_camera_vendor(raw: str) -> str:
+        value = (raw or "generic").strip().lower()
+        return value if value in {"generic", "reolink"} else "generic"
+
+    def _normalize_camera_playback(raw: str, vendor: str) -> str:
+        value = (raw or "snapshot").strip().lower()
+        if value not in {"snapshot", "rtsp"}:
+            value = "snapshot"
+        if value == "snapshot" and vendor != "reolink":
+            value = "rtsp"
+        return value
+
+    def _normalize_camera_ptz(raw: str, vendor: str) -> str:
+        value = (raw or "none").strip().lower()
+        if vendor != "reolink":
+            return "none"
+        return value if value in {"none", "reolink"} else "none"
+
+    def _camera_profiles() -> list[dict]:
+        cfg = load_config()
+        profiles = cfg.get("cameras")
+        if not isinstance(profiles, list):
+            return []
+        out = []
+        for item in profiles:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("id") or "").strip()
+            title = str(item.get("title") or "").strip()
+            base_url = _normalize_camera_base(str(item.get("base_url") or ""))
+            vendor = _normalize_camera_vendor(str(item.get("vendor") or item.get("kind") or "reolink"))
+            playback_mode = _normalize_camera_playback(str(item.get("playback_mode") or "snapshot"), vendor)
+            stream = _normalize_camera_rtsp(str(item.get("stream") or ""))
+            stream_quality = str(item.get("stream_quality") or "main").strip().lower()
+            if stream_quality not in {"main", "sub"}:
+                stream_quality = "main"
+            try:
+                channel = max(0, int(item.get("channel") or 0))
+            except Exception:
+                channel = 0
+            stream_index = channel + 1
+            if vendor == "reolink" and playback_mode == "rtsp" and not stream:
+                parsed = urlparse(base_url)
+                host = parsed.hostname or ""
+                if host:
+                    auth = ""
+                    username = str(item.get("username") or "").strip()
+                    password = str(item.get("password") or "")
+                    if username:
+                        auth = quote(username, safe="")
+                        if password:
+                            auth += ":" + quote(password, safe="")
+                        auth += "@"
+                    stream = _normalize_camera_rtsp(
+                        f"rtsp://{auth}{host}:554/h264Preview_{stream_index:02d}_{stream_quality}"
+                    )
+            if (
+                not pid
+                or not title
+                or (playback_mode == "snapshot" and not base_url)
+                or (playback_mode == "rtsp" and not stream)
+            ):
+                continue
+            try:
+                refresh_ms = max(100, min(10000, int(item.get("refresh_ms") or 500)))
+            except Exception:
+                refresh_ms = 500
+            ptz_mode = _normalize_camera_ptz(str(item.get("ptz_mode") or "none"), vendor)
+            out.append(
+                {
+                    "id": pid,
+                    "title": title,
+                    "kind": vendor,
+                    "vendor": vendor,
+                    "playback_mode": playback_mode,
+                    "base_url": base_url,
+                    "username": str(item.get("username") or "").strip(),
+                    "password": str(item.get("password") or ""),
+                    "channel": channel,
+                    "stream": stream,
+                    "stream_quality": stream_quality,
+                    "refresh_ms": refresh_ms,
+                    "ptz_mode": ptz_mode,
+                }
+            )
+        return out
+
+    def _camera_profile_by_id(profile_id: str) -> dict:
+        profile_id = str(profile_id or "").strip()
+        if not profile_id:
+            return {}
+        for profile in _camera_profiles():
+            if profile.get("id") == profile_id:
+                return profile
+        return {}
+
+    def _camera_config_from_form(form) -> dict:
+        profile_id = (form.get("camera_profile_id") or "").strip()
+        profile = _camera_profile_by_id(profile_id)
+        return {"profile_id": profile_id} if profile else {}
+
+    def _camera_config_from_row(row) -> dict:
+        if not row or (row["item_kind"] or "") != "camera":
+            return {}
+        try:
+            data = json.loads(row["url"] or "{}")
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        profile_id = str(data.get("profile_id") or "").strip()
+        profile = _camera_profile_by_id(profile_id)
+        if profile:
+            merged = dict(profile)
+            merged["profile_id"] = profile_id
+            return merged
+        vendor = _normalize_camera_vendor(str(data.get("vendor") or data.get("kind") or "generic"))
+        data["vendor"] = vendor
+        data["kind"] = vendor
+        data["playback_mode"] = _normalize_camera_playback(str(data.get("playback_mode") or "snapshot"), vendor)
+        data["base_url"] = _normalize_camera_base(str(data.get("base_url") or ""))
+        data["stream"] = _normalize_camera_rtsp(str(data.get("stream") or ""))
+        try:
+            data["channel"] = max(0, int(data.get("channel") or 0))
+        except Exception:
+            data["channel"] = 0
+        try:
+            data["refresh_ms"] = max(100, min(10000, int(data.get("refresh_ms") or 500)))
+        except Exception:
+            data["refresh_ms"] = 500
+        data["ptz_mode"] = _normalize_camera_ptz(str(data.get("ptz_mode") or "none"), vendor)
+        return data
+
+    def _camera_public_config(row) -> dict:
+        cfg = _camera_config_from_row(row)
+        return {
+            "profile_id": cfg.get("profile_id") or "",
+            "profile_title": cfg.get("title") or "",
+            "vendor": cfg.get("vendor") or cfg.get("kind") or "generic",
+            "playback_mode": cfg.get("playback_mode") or "snapshot",
+            "base_url": cfg.get("base_url") or "",
+            "channel": int(cfg.get("channel") or 0),
+            "refresh_ms": int(cfg.get("refresh_ms") or 500),
+            "ptz_mode": cfg.get("ptz_mode") or "none",
+            "stream": cfg.get("stream") or "",
+            "has_credentials": bool(cfg.get("username") or cfg.get("password")),
+        }
+
+    def _camera_editor_config(row) -> dict:
+        cfg = _camera_public_config(row)
+        full = _camera_config_from_row(row)
+        cfg["username"] = full.get("username") or ""
+        cfg["stream"] = full.get("stream") or ""
+        return cfg
+
+    def _camera_reolink_url(
+        cfg: dict,
+        command: str,
+        extra: dict | None = None,
+        *,
+        token: str | None = None,
+        include_credentials: bool = True,
+    ) -> str:
+        base = cfg.get("base_url") or ""
+        if not base:
+            return ""
+        params = {
+            "cmd": command,
+            "channel": str(int(cfg.get("channel") or 0)),
+            "rs": "vortnotes",
+        }
+        if token:
+            params["token"] = token
+        elif include_credentials and cfg.get("username"):
+            params["user"] = cfg.get("username")
+        if include_credentials and not token and cfg.get("password"):
+            params["password"] = cfg.get("password")
+        if extra:
+            params.update({k: str(v) for k, v in extra.items() if v is not None})
+        return base + "/cgi-bin/api.cgi?" + urlencode(params)
+
+    def _camera_reolink_login_token(cfg: dict) -> str:
+        base = cfg.get("base_url") or ""
+        username = cfg.get("username") or ""
+        password = cfg.get("password") or ""
+        if not base or not username or not password:
+            return ""
+        url = base + "/cgi-bin/api.cgi?cmd=Login"
+        payload = json.dumps(
+            [
+                {
+                    "cmd": "Login",
+                    "param": {
+                        "User": {
+                            "userName": username,
+                            "password": password,
+                        }
+                    },
+                }
+            ]
+        ).encode("utf-8")
+        req = Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Vortnotes/Camera",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=8) as resp:
+            data = resp.read(1024 * 1024)
+        try:
+            body = json.loads(data.decode("utf-8"))
+        except Exception:
+            return ""
+        if not isinstance(body, list) or not body:
+            return ""
+        first = body[0] if isinstance(body[0], dict) else {}
+        if int(first.get("code", -1)) != 0:
+            return ""
+        value = first.get("value") if isinstance(first.get("value"), dict) else {}
+        token = value.get("Token") if isinstance(value.get("Token"), dict) else {}
+        return str(token.get("name") or "").strip()
+
+    def _camera_reolink_logout_token(cfg: dict, token: str) -> None:
+        token = (token or "").strip()
+        base = cfg.get("base_url") or ""
+        if not base or not token:
+            return
+        try:
+            logout_url = _camera_reolink_url(cfg, "Logout", token=token, include_credentials=False)
+            req = Request(logout_url, headers={"User-Agent": "Vortnotes/Camera"})
+            with urlopen(req, timeout=4) as resp:
+                resp.read(256 * 1024)
+        except Exception:
+            pass
+
+    def _looks_like_image(data: bytes) -> bool:
+        if data.startswith(b"\xff\xd8\xff"):
+            return data.rstrip().endswith(b"\xff\xd9")
+        return data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"GIF87a") or data.startswith(b"GIF89a")
+
+    def _read_camera_snapshot(resp, max_bytes: int = 64 * 1024 * 1024) -> bytes:
+        data = resp.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("Camera snapshot is larger than 64 MB.")
+        return data
+
+    def _short_camera_body(data: bytes) -> str:
+        text = data[:800].decode("utf-8", "replace")
+        return " ".join(text.split())
+
+    def _camera_reolink_error(data: bytes) -> str:
+        try:
+            body = json.loads(data[: 1024 * 1024].decode("utf-8", "replace"))
+        except Exception:
+            return ""
+        items = body if isinstance(body, list) else [body]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                code = int(item.get("code", 0))
+            except Exception:
+                code = 0
+            if code == 0:
+                continue
+            err = item.get("error") if isinstance(item.get("error"), dict) else {}
+            detail = str(err.get("detail") or "").strip()
+            rsp = str(err.get("rspCode") or "").strip()
+            if detail and rsp:
+                return f"{detail} ({rsp})"
+            return detail or _short_camera_body(data) or "Camera returned an error."
+        return ""
+
+    def _camera_response_is_login_failed(data: bytes) -> bool:
+        text = data[:1200].decode("utf-8", "replace").lower()
+        return "login failed" in text or "rspcode" in text and "-7" in text
+
+    def _camera_reolink_json_command(cfg: dict, command: str, param: dict, token: str) -> bytes:
+        base = cfg.get("base_url") or ""
+        if not base or not token:
+            return b""
+        url = base + "/cgi-bin/api.cgi?" + urlencode({"cmd": command, "token": token})
+        payload = json.dumps([{"cmd": command, "action": 0, "param": param}]).encode("utf-8")
+        req = Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Vortnotes/Camera",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=5) as resp:
+            return resp.read(512 * 1024)
+
+    def _camera_hls_dir(item_id: int) -> Path:
+        return CAMERA_HLS_DIR / str(int(item_id))
+
+    def _camera_stop_stream_locked(item_id: int) -> None:
+        entry = _camera_streams.pop(int(item_id), None)
+        proc = entry.get("proc") if isinstance(entry, dict) else None
+        if proc and getattr(proc, "poll", lambda: None)() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
+
+    def _camera_prepare_hls_dir(out_dir: Path) -> tuple[bool, str]:
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return False, f"Unable to create HLS output directory: {exc}"
+        patterns = ("stream.m3u8", "stream.m3u8.tmp", "ffmpeg.log", "seg_*.ts")
+        for _attempt in range(3):
+            failures: list[str] = []
+            for pattern in patterns:
+                for path in out_dir.glob(pattern):
+                    try:
+                        if path.is_file() or path.is_symlink():
+                            path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except Exception as exc:
+                        failures.append(f"{path.name}: {exc}")
+            if not failures:
+                return True, ""
+            time.sleep(0.15)
+        return True, ""
+
+    def _camera_cleanup_stale_streams(max_idle: int = 90) -> None:
+        now = time.time()
+        with _camera_streams_lock:
+            stale = [
+                item_id
+                for item_id, entry in _camera_streams.items()
+                if (not entry.get("proc"))
+                or entry["proc"].poll() is not None
+                or now - float(entry.get("last_seen") or 0) > max_idle
+            ]
+            for item_id in stale:
+                _camera_stop_stream_locked(item_id)
+
+    def _camera_start_hls_stream(item_id: int, cfg: dict) -> tuple[bool, str]:
+        stream = _normalize_camera_rtsp(str(cfg.get("stream") or ""))
+        if not stream:
+            return False, "RTSP stream URL is missing or not local."
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return False, "FFmpeg is not installed in this runtime."
+        out_dir = _camera_hls_dir(item_id)
+        _camera_cleanup_stale_streams()
+        with _camera_streams_lock:
+            existing = _camera_streams.get(int(item_id))
+            proc = existing.get("proc") if existing else None
+            if proc and proc.poll() is None:
+                existing["last_seen"] = time.time()
+                return True, ""
+            _camera_stop_stream_locked(item_id)
+            ok, error = _camera_prepare_hls_dir(out_dir)
+            if not ok:
+                return False, f"Unable to prepare HLS output: {error}"
+            playlist = out_dir / "stream.m3u8"
+            segment = out_dir / "seg_%05d.ts"
+            ffmpeg_log = out_dir / "ffmpeg.log"
+            cmd = [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "info",
+                "-rtsp_transport",
+                "tcp",
+                "-i",
+                stream,
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-tune",
+                "zerolatency",
+                "-profile:v",
+                "baseline",
+                "-level",
+                "3.1",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "30",
+                "-keyint_min",
+                "30",
+                "-sc_threshold",
+                "0",
+                "-f",
+                "hls",
+                "-hls_time",
+                "1",
+                "-hls_list_size",
+                "4",
+                "-hls_flags",
+                "delete_segments+omit_endlist+independent_segments",
+                "-hls_segment_filename",
+                str(segment),
+                str(playlist),
+            ]
+            try:
+                log_handle = ffmpeg_log.open("ab")
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=log_handle,
+                    cwd=str(out_dir),
+                )
+                try:
+                    log_handle.close()
+                except Exception:
+                    pass
+            except Exception as exc:
+                return False, f"Unable to start FFmpeg: {exc}"
+            _camera_streams[int(item_id)] = {"proc": proc, "last_seen": time.time()}
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            if playlist.is_file() and playlist.stat().st_size > 0:
+                return True, ""
+            if proc.poll() is not None:
+                try:
+                    detail = ffmpeg_log.read_text(encoding="utf-8", errors="replace")[-600:].strip()
+                except Exception:
+                    detail = ""
+                return False, "FFmpeg stopped before the stream was ready." + (f" {detail}" if detail else "")
+            time.sleep(0.2)
+        return False, "Timed out waiting for FFmpeg to create the stream playlist."
 
     @app.route("/content/apps/sticky/save", methods=["POST"], endpoint="sticky_note_save")
     def sticky_note_save():
@@ -722,7 +1228,7 @@ def register_content_routes(app) -> None:
             if target not in ("_self", "_blank"):
                 target = "_blank"
             kind = row["item_kind"] or "link"
-            if kind in ("file", "ha"):
+            if kind in ("file", "ha", "camera", "app"):
                 db.execute(
                     "UPDATE links SET title=? WHERE id=?",
                     (title, item_id),
@@ -820,7 +1326,11 @@ def register_content_routes(app) -> None:
         offset = (page - 1) * page_size
 
         groups = _list_groups()
-        items = _list_top_items(offset, page_size)
+        items = []
+        for row in _list_top_items(offset, page_size):
+            item = dict(row)
+            item["camera"] = _camera_public_config(row) if (row["item_kind"] or "") == "camera" else {}
+            items.append(item)
         return render_template(
             "content.html",
             items=items,
@@ -831,6 +1341,7 @@ def register_content_routes(app) -> None:
             total_pages=total_pages,
             total_count=total,
             icon_library=_list_icon_library(),
+            camera_profiles=_camera_profiles(),
         )
 
     # Legacy routes (pre-v120): keep old URLs working by redirecting.
@@ -878,11 +1389,12 @@ def register_content_routes(app) -> None:
                 kind = (link["item_kind"] if ("item_kind" in link.keys()) else "link") or "link"
                 is_file = kind == "file"
                 is_ha = kind == "ha"
+                is_camera = kind == "camera"
                 file_size = link["file_size"] if ("file_size" in link.keys()) else None
                 size_mb = round((float(file_size) / (1024.0 * 1024.0)), 2) if (file_size is not None) else None
                 out.append(
                     {
-                        "row_type": "file" if is_file else ("ha" if is_ha else "link"),
+                        "row_type": "file" if is_file else ("ha" if is_ha else ("camera" if is_camera else "link")),
                         "id": int(link["id"]),
                         "title": link["title"],
                         "url": link["url"],
@@ -902,6 +1414,7 @@ def register_content_routes(app) -> None:
                         "file_size_mb": size_mb,
                         "ha_entity_id": (link["ha_entity_id"] if ("ha_entity_id" in link.keys()) else None),
                         "ha_entity_type": (link["ha_entity_type"] if ("ha_entity_type" in link.keys()) else None),
+                        "camera": _camera_editor_config(link) if is_camera else {},
                     }
                 )
 
@@ -911,11 +1424,12 @@ def register_content_routes(app) -> None:
             kind = (link["item_kind"] if ("item_kind" in link.keys()) else "link") or "link"
             is_file = kind == "file"
             is_ha = kind == "ha"
+            is_camera = kind == "camera"
             file_size = link["file_size"] if ("file_size" in link.keys()) else None
             size_mb = round((float(file_size) / (1024.0 * 1024.0)), 2) if (file_size is not None) else None
             out.append(
                 {
-                    "row_type": "file" if is_file else ("ha" if is_ha else "link"),
+                    "row_type": "file" if is_file else ("ha" if is_ha else ("camera" if is_camera else "link")),
                     "id": int(link["id"]),
                     "title": link["title"],
                     "url": link["url"],
@@ -935,6 +1449,7 @@ def register_content_routes(app) -> None:
                     "file_size_mb": size_mb,
                     "ha_entity_id": (link["ha_entity_id"] if ("ha_entity_id" in link.keys()) else None),
                     "ha_entity_type": (link["ha_entity_type"] if ("ha_entity_type" in link.keys()) else None),
+                    "camera": _camera_editor_config(link) if is_camera else {},
                 }
             )
 
@@ -1012,6 +1527,7 @@ def register_content_routes(app) -> None:
             filters=filters,
             filtered_selections=[f"{r.get('row_type')}:{r.get('id')}" for r in out],
             icon_library=_list_icon_library(),
+            camera_profiles=_camera_profiles(),
         )
 
     @app.route("/content/group/<int:group_id>/items", endpoint="content_group_items")
@@ -1071,6 +1587,7 @@ def register_content_routes(app) -> None:
                 "file_size": int(r["file_size"] or 0) if (r["file_size"] is not None) else None,
                 "ha_entity_id": r["ha_entity_id"],
                 "ha_entity_type": r["ha_entity_type"],
+                "camera": _camera_public_config(r) if (r["item_kind"] or "") == "camera" else {},
             }
             for r in links_rows
         ]
@@ -1170,6 +1687,147 @@ def register_content_routes(app) -> None:
         except HomeAssistantError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 502
         return jsonify({"ok": True, "title": row["title"], "entity_id": entity_id})
+
+    @app.route("/content/camera/<int:item_id>/snapshot", endpoint="content_camera_snapshot")
+    def content_camera_snapshot(item_id: int):
+        gate = _require_read_access(url_for("content"))
+        if gate:
+            return gate
+
+        row = get_db().execute("SELECT id, title, url, item_kind FROM links WHERE id=?", (int(item_id),)).fetchone()
+        cfg = _camera_config_from_row(row)
+        if (cfg.get("vendor") or cfg.get("kind") or "generic") != "reolink":
+            return ("Snapshots are only configured for Reolink cameras.", 400)
+        if not cfg.get("base_url"):
+            return ("Camera URL is missing or not local.", 400)
+        snap_url = _camera_reolink_url(cfg, "Snap")
+        if not snap_url:
+            return ("Camera snapshot is not configured.", 400)
+        try:
+            req = Request(snap_url, headers={"User-Agent": "Vortnotes/Camera"})
+            with urlopen(req, timeout=8) as resp:
+                data = _read_camera_snapshot(resp)
+                ctype = (resp.headers.get("Content-Type") or "image/jpeg").split(";", 1)[0].strip()
+        except Exception as exc:
+            return (f"Camera snapshot failed: {exc}", 502)
+        if (not ctype.startswith("image/") or not _looks_like_image(data)) and _camera_response_is_login_failed(data):
+            token = ""
+            try:
+                token = _camera_reolink_login_token(cfg)
+                if token:
+                    token_url = _camera_reolink_url(cfg, "Snap", token=token, include_credentials=False)
+                    req = Request(token_url, headers={"User-Agent": "Vortnotes/Camera"})
+                    with urlopen(req, timeout=8) as resp:
+                        data = _read_camera_snapshot(resp)
+                        ctype = (resp.headers.get("Content-Type") or "image/jpeg").split(";", 1)[0].strip()
+            except Exception:
+                pass
+            finally:
+                _camera_reolink_logout_token(cfg, token)
+        if not ctype.startswith("image/") or not _looks_like_image(data):
+            detail = _short_camera_body(data)
+            if not detail:
+                detail = f"Camera returned {ctype or 'an empty response'} instead of an image."
+            return (detail, 502, {"Content-Type": "text/plain; charset=utf-8"})
+        return Response(data, mimetype=ctype, headers={"Cache-Control": "no-store"})
+
+    @app.route("/content/camera/<int:item_id>/stream/start", methods=["POST"], endpoint="content_camera_stream_start")
+    def content_camera_stream_start(item_id: int):
+        gate = _require_read_access(url_for("content"))
+        if gate:
+            return _json_gate(gate)
+        row = get_db().execute("SELECT id, title, url, item_kind FROM links WHERE id=?", (int(item_id),)).fetchone()
+        cfg = _camera_config_from_row(row)
+        if (cfg.get("playback_mode") or "snapshot") != "rtsp":
+            return jsonify({"ok": False, "error": "rtsp_playback_not_configured"}), 400
+        ok, error = _camera_start_hls_stream(int(item_id), cfg)
+        if not ok:
+            return jsonify({"ok": False, "error": error}), 502
+        playlist = url_for("content_camera_hls_file", item_id=int(item_id), filename="stream.m3u8")
+        return jsonify({"ok": True, "playlist": playlist})
+
+    @app.route("/content/camera/<int:item_id>/stream/stop", methods=["POST"], endpoint="content_camera_stream_stop")
+    def content_camera_stream_stop(item_id: int):
+        gate = _require_read_access(url_for("content"))
+        if gate:
+            return _json_gate(gate)
+        with _camera_streams_lock:
+            _camera_stop_stream_locked(int(item_id))
+        return jsonify({"ok": True})
+
+    @app.route("/content/camera/<int:item_id>/hls/<path:filename>", endpoint="content_camera_hls_file")
+    def content_camera_hls_file(item_id: int, filename: str):
+        gate = _require_read_access(url_for("content"))
+        if gate:
+            return _plain_auth_gate(gate)
+        filename = (filename or "").replace("\\", "/")
+        if filename.startswith("/") or ".." in filename.split("/"):
+            abort(404)
+        with _camera_streams_lock:
+            entry = _camera_streams.get(int(item_id))
+            if entry:
+                entry["last_seen"] = time.time()
+        directory = _camera_hls_dir(int(item_id))
+        if not (directory / filename).is_file():
+            return ("Stream is starting.", 503, {"Cache-Control": "no-store"})
+        mimetype = "application/vnd.apple.mpegurl" if filename.endswith(".m3u8") else "video/mp2t"
+        return send_from_directory(directory, filename, mimetype=mimetype, max_age=0)
+
+    @app.route("/content/camera/<int:item_id>/ptz", methods=["POST"], endpoint="content_camera_ptz")
+    def content_camera_ptz(item_id: int):
+        gate = _require_read_access(url_for("content"))
+        if gate:
+            return _json_gate(gate)
+
+        payload = request.get_json(silent=True) or {}
+        action = (payload.get("action") or "").strip().lower()
+        op_map = {
+            "up": "Up",
+            "down": "Down",
+            "left": "Left",
+            "right": "Right",
+            "stop": "Stop",
+            "zoom_in": "ZoomInc",
+            "zoom_out": "ZoomDec",
+        }
+        op = op_map.get(action)
+        if not op:
+            return jsonify({"ok": False, "error": "invalid_action"}), 400
+        try:
+            speed = max(1, min(64, int(payload.get("speed") or 32)))
+        except Exception:
+            speed = 32
+
+        row = get_db().execute("SELECT id, title, url, item_kind FROM links WHERE id=?", (int(item_id),)).fetchone()
+        cfg = _camera_config_from_row(row)
+        if not cfg.get("base_url") or (cfg.get("ptz_mode") or "none") != "reolink":
+            return jsonify({"ok": False, "error": "ptz_not_configured"}), 400
+
+        ptz_param = {"channel": int(cfg.get("channel") or 0), "op": op, "speed": speed}
+        data = b""
+        try:
+            token = ""
+            if cfg.get("username") and cfg.get("password"):
+                token = _camera_reolink_login_token(cfg)
+                if token:
+                    try:
+                        data = _camera_reolink_json_command(cfg, "PtzCtrl", ptz_param, token)
+                    finally:
+                        _camera_reolink_logout_token(cfg, token)
+            error = _camera_reolink_error(data)
+            if not data or error:
+                ptz_url = _camera_reolink_url(cfg, "PtzCtrl", {"op": op, "speed": speed})
+                req = Request(ptz_url, headers={"User-Agent": "Vortnotes/Camera"})
+                with urlopen(req, timeout=5) as resp:
+                    data = resp.read(512 * 1024)
+            error = _camera_reolink_error(data)
+            if _camera_response_is_login_failed(data):
+                return jsonify({"ok": False, "error": _short_camera_body(data) or "Camera PTZ login failed."}), 502
+            if error:
+                return jsonify({"ok": False, "error": error}), 502
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Camera PTZ failed: {exc}"}), 502
+        return jsonify({"ok": True, "action": action})
 
     @app.route("/content/item/save", methods=["POST"], endpoint="content_item_save")
     def links_item_save():
@@ -1472,6 +2130,98 @@ def register_content_routes(app) -> None:
             db.commit()
             return _save_redirect()
 
+        if row_type == "camera":
+            title = (request.form.get("title") or "").strip() or "Camera"
+            cfg = _camera_config_from_form(request.form)
+            if not cfg:
+                flash("Select a saved camera profile. Camera settings are managed in Settings.", "error")
+                return _save_redirect()
+            group_id = _int_or_none(request.form.get("group_id"))
+            target = "_self"
+            config_json = json.dumps(cfg, separators=(",", ":"))
+
+            if group_id is None:
+                if order_num is None:
+                    row = db.execute(
+                        "SELECT COALESCE(MAX(display_order), -1) AS m FROM links WHERE group_id IS NULL"
+                    ).fetchone()
+                    order_num = int(row["m"] if row and row["m"] is not None else -1) + 1
+                sub_order_val = None
+                _shift_orders(
+                    table="links",
+                    col="display_order",
+                    desired=int(order_num),
+                    where_sql="group_id IS NULL",
+                    where_params=(),
+                    exclude_id=rid if (mode == "edit" and rid is not None) else None,
+                )
+            else:
+                if order_num is None:
+                    row = db.execute(
+                        "SELECT COALESCE(MAX(display_order), -1) AS m FROM links WHERE group_id=?", (int(group_id),)
+                    ).fetchone()
+                    order_num = int(row["m"] if row and row["m"] is not None else -1) + 1
+                sub_order_val = None
+                _shift_orders(
+                    table="links",
+                    col="display_order",
+                    desired=int(order_num),
+                    where_sql="group_id = ?",
+                    where_params=(int(group_id),),
+                    exclude_id=rid if (mode == "edit" and rid is not None) else None,
+                )
+
+            icon_file = request.files.get("icon_file")
+            icon_stored = ""
+            if clear_icon:
+                icon_stored = ""
+            elif icon_action == "library":
+                icon_stored = _icon_choice_allowed(request.form.get("icon_choice") or "", db)
+            elif icon_action == "upload" and icon_file and getattr(icon_file, "filename", ""):
+                icon_stored = _save_icon_upload(icon_file)
+
+            old_file_rel = ""
+            if mode == "edit" and rid is not None:
+                ex = db.execute("SELECT file_stored_name FROM links WHERE id=?", (int(rid),)).fetchone()
+                old_file_rel = (ex["file_stored_name"] if ex else "") or ""
+
+            if mode == "add":
+                db.execute(
+                    "INSERT INTO links (title, url, group_id, sub_order, target, icon_stored_name, created_at, display_order, item_kind, embed) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,0)",
+                    (
+                        title,
+                        config_json,
+                        group_id,
+                        sub_order_val,
+                        target,
+                        icon_stored or None,
+                        iso_now(),
+                        int(order_num),
+                        "camera",
+                    ),
+                )
+            elif mode == "edit" and rid is not None:
+                if clear_icon:
+                    db.execute(
+                        "UPDATE links SET title=?, url=?, group_id=?, sub_order=?, target=?, icon_stored_name=NULL, display_order=?, embed=0, item_kind='camera', file_stored_name=NULL, file_original_name=NULL, file_mime=NULL, file_size=NULL, ha_entity_id=NULL, ha_entity_type=NULL WHERE id=?",
+                        (title, config_json, group_id, sub_order_val, target, int(order_num), int(rid)),
+                    )
+                elif icon_stored:
+                    db.execute(
+                        "UPDATE links SET title=?, url=?, group_id=?, sub_order=?, target=?, icon_stored_name=?, display_order=?, embed=0, item_kind='camera', file_stored_name=NULL, file_original_name=NULL, file_mime=NULL, file_size=NULL, ha_entity_id=NULL, ha_entity_type=NULL WHERE id=?",
+                        (title, config_json, group_id, sub_order_val, target, icon_stored, int(order_num), int(rid)),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE links SET title=?, url=?, group_id=?, sub_order=?, target=?, display_order=?, embed=0, item_kind='camera', file_stored_name=NULL, file_original_name=NULL, file_mime=NULL, file_size=NULL, ha_entity_id=NULL, ha_entity_type=NULL WHERE id=?",
+                        (title, config_json, group_id, sub_order_val, target, int(order_num), int(rid)),
+                    )
+                _unlink_upload(old_file_rel)
+
+            db.commit()
+            return _save_redirect()
+
         if row_type == "app":
             app_id = (request.form.get("app_id") or request.form.get("url") or "").strip().lower()
             app_info = CONTENT_APPS.get(app_id)
@@ -1758,7 +2508,7 @@ def register_content_routes(app) -> None:
                 rid = int(rid_raw)
             except Exception:
                 continue
-            if row_type not in {"group", "link", "file", "ha", "app"}:
+            if row_type not in {"group", "link", "file", "ha", "app", "camera"}:
                 continue
             key = (row_type, rid)
             if key in seen:

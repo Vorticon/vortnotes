@@ -29,4 +29,6 @@ backups/
 dbs/
 uploads/
 config/
+data/
+vortnotes-data/
 .secret_key

@@ -2,6 +2,13 @@
 
 This project follows Semantic Versioning.
 
+## 1.0.9 - 2026-07-04
+
+- Fixed camera stream authorization for password-protected databases with
+  read-without-password access.
+- Prevented camera HLS auth failures from rendering Settings HTML/CSS as video
+  text in Edge.
+
 ## 1.0.8 - 2026-06-22
 
 - Added an admin Settings button to generate a unique per-install self-signed
