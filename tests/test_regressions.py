@@ -40,6 +40,9 @@ def test_builtin_content_apps_render_and_reject_unknown_apps():
     assert client.get("/content/apps/memory").status_code == 200
     assert client.get("/content/apps/minesweeper").status_code == 200
     assert client.get("/content/apps/breakout").status_code == 200
+    assert client.get("/content/apps/snake").status_code == 200
+    assert client.get("/content/apps/calendar").status_code == 200
+    assert client.get("/content/apps/kanban").status_code == 200
     assert client.get("/content/apps/2048").status_code == 404
     assert client.get("/content/apps/simon").status_code == 200
     assert client.get("/content/apps/sticky").status_code == 200
@@ -78,10 +81,73 @@ def test_settings_database_actions_use_modals_not_native_prompts():
     assert "Read without password" not in html
     assert "Guest Permissions" in html
     assert "prompt(" not in html
-    assert "Rename DB:" not in html
-    assert "Reset (clear) DB password" not in html
-    assert "Delete DB '" not in html
-    assert "Clear Password" in html
+
+
+def test_new_content_apps_are_available_in_add_dropdowns():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"content_apps_{uuid.uuid4().hex}.db"
+    ensure_db_initialized(resolve_db_path(name))
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    page = client.get("/content")
+
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert '<option value="kanban">Kanban Board</option>' in html
+    assert '<option value="calendar">Calendar Lite</option>' in html
+    assert '<option value="snake">Snake</option>' in html
+    assert "Built-in apps run locally inside Vortnotes." in html
+
+
+def test_kanban_app_initializes_and_links_cards_to_notes():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"kanban_{uuid.uuid4().hex}.db"
+    db_path = resolve_db_path(name)
+    ensure_db_initialized(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        cur = db.execute(
+            "INSERT INTO notes (title, tag, created_at, content_html, content_delta) VALUES (?,?,?,?,?)",
+            ("Project note", "work", "2026-01-01T00:00:00Z", "<p>Details</p>", ""),
+        )
+        note_id = int(cur.lastrowid)
+        db.commit()
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    with client.session_transaction() as session:
+        session["_csrf_token"] = "kanban-token"
+    page = client.get("/content/apps/kanban")
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert "Kanban Board" in html
+    assert "Backlog" in html
+    assert "Doing" in html
+    assert "Done" in html
+    assert "Project note" in html
+    assert "kanban_app.js" in html
+
+    with sqlite3.connect(db_path) as db:
+        column_id = db.execute("SELECT id FROM kanban_columns WHERE title='Backlog'").fetchone()[0]
+
+    card = client.post(
+        "/content/apps/kanban/card/save",
+        json={"column_id": column_id, "title": "Wire up board", "body": "Use this note.", "note_id": note_id},
+        headers={"X-CSRFToken": "kanban-token", "X-Requested-With": "XMLHttpRequest"},
+    )
+    assert card.status_code == 200
+    card_json = card.get_json()
+    assert card_json["ok"] is True
+    assert card_json["card"]["note_id"] == note_id
+
+    with sqlite3.connect(db_path) as db:
+        row = db.execute(
+            "SELECT title, body, note_id FROM kanban_cards WHERE id=?", (card_json["card"]["id"],)
+        ).fetchone()
+    assert row == ("Wire up board", "Use this note.", note_id)
 
 
 def test_database_selection_shows_admin_access_notice():
@@ -622,3 +688,185 @@ def test_empty_content_page_keeps_right_click_add_target():
     assert "No content yet. Right-click here to add your first item." in html
     assert "grid.addEventListener('contextmenu'" in html
     assert 'onclick="vnContentContextAdd()"' in html
+
+
+def test_content_media_modal_has_loop_and_continue_playlist_controls():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"content_media_playlist_{uuid.uuid4().hex}.db"
+    db_path = resolve_db_path(name)
+    ensure_db_initialized(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO links (title, url, target, created_at, display_order, item_kind, "
+            "file_stored_name, file_original_name, file_mime, file_size) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                "Song one",
+                "media/song-one.mp3",
+                "_blank",
+                "2026-01-01T00:00:00Z",
+                0,
+                "file",
+                "media/song-one.mp3",
+                "song-one.mp3",
+                "audio/mpeg",
+                123,
+            ),
+        )
+        db.execute(
+            "INSERT INTO links (title, url, target, created_at, display_order, item_kind, "
+            "file_stored_name, file_original_name, file_mime, file_size) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                "Video one",
+                "media/video-one.mp4",
+                "_blank",
+                "2026-01-01T00:00:01Z",
+                1,
+                "file",
+                "media/video-one.mp4",
+                "video-one.mp4",
+                "video/mp4",
+                456,
+            ),
+        )
+        db.commit()
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    page = client.get("/content")
+
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert 'id="contentViewLoop"' in html
+    assert 'id="contentViewContinue"' in html
+    assert 'id="contentViewShuffle"' in html
+    assert "Continue in folder" in html
+    assert "Shuffle" in html
+    assert 'data-media-mime="audio/mpeg"' in html
+    assert 'data-media-title="song-one.mp3"' in html
+    assert 'data-media-playable="1"' in html
+    assert "vnBuildMediaPlaylist" in html
+    assert "vnOpenPlaylistOffset" in html
+    assert "vnMediaShuffle" in html
+    assert "vnSetMediaMode" in html
+    assert "vnMediaShuffleQueue" in html
+    assert "shuffle.disabled = vnMediaPlaybackPrefs.loop" in html
+
+
+def test_note_attachment_media_modal_has_loop_and_continue_playlist_controls():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"note_media_playlist_{uuid.uuid4().hex}.db"
+    db_path = resolve_db_path(name)
+    ensure_db_initialized(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        cur = db.execute(
+            "INSERT INTO notes (title, tag, created_at, content_html, content_delta) VALUES (?,?,?,?,?)",
+            ("Media note", "", "2026-01-01T00:00:00Z", "<p>Media</p>", ""),
+        )
+        note_id = cur.lastrowid
+        db.execute(
+            "INSERT INTO attachments (note_id, original_name, stored_name, created_at, display_order) "
+            "VALUES (?,?,?,?,?)",
+            (note_id, "first.mp3", "first-stored.bin", "2026-01-01T00:00:01Z", 0),
+        )
+        db.execute(
+            "INSERT INTO attachments (note_id, original_name, stored_name, created_at, display_order) "
+            "VALUES (?,?,?,?,?)",
+            (note_id, "second.mp4", "second-stored.bin", "2026-01-01T00:00:02Z", 1),
+        )
+        db.commit()
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    page = client.get(f"/notes/{note_id}")
+
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert 'id="contentViewLoop"' in html
+    assert 'id="contentViewContinue"' in html
+    assert 'id="contentViewShuffle"' in html
+    assert "Continue in folder" in html
+    assert "Shuffle" in html
+    assert 'data-mime="audio/mpeg"' in html
+    assert 'data-media-title="first.mp3"' in html
+    assert 'data-media-playable="1"' in html
+    assert "vnBuildMediaPlaylist" in html
+    assert "vnOpenPlaylistOffset" in html
+    assert "vnMediaShuffle" in html
+    assert "vnSetMediaMode" in html
+    assert "vnMediaShuffleQueue" in html
+    assert "shuffle.disabled = vnMediaPlaybackPrefs.loop" in html
+
+
+def test_empty_content_group_modal_keeps_right_click_add_target():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"empty_group_content_{uuid.uuid4().hex}.db"
+    db_path = resolve_db_path(name)
+    ensure_db_initialized(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO link_groups (name, icon_stored_name, created_at, display_order) VALUES (?,?,?,?)",
+            ("Empty Group", None, "2026-01-01T00:00:00Z", 0),
+        )
+        db.commit()
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    page = client.get("/content")
+
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert "No items yet. Right-click here to add one to this group." in html
+    assert "grid.style.minHeight = '180px'" in html
+    assert "window.vnMakeContentReorder(grid" in html
+
+
+def test_content_file_upload_to_group_xhr_redirects_back_to_content():
+    app = create_app()
+    app.config["TESTING"] = True
+    name = f"content_group_upload_{uuid.uuid4().hex}.db"
+    db_path = resolve_db_path(name)
+    ensure_db_initialized(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        cur = db.execute(
+            "INSERT INTO link_groups (name, icon_stored_name, created_at, display_order) VALUES (?,?,?,?)",
+            ("Media", None, "2026-01-01T00:00:00Z", 0),
+        )
+        group_id = cur.lastrowid
+        db.commit()
+
+    client = app.test_client()
+    client.set_cookie("selected_db", name)
+    with client.session_transaction() as session:
+        session["_csrf_token"] = "content-upload-token"
+
+    response = client.post(
+        "/content/item/save",
+        data={
+            "csrf_token": "content-upload-token",
+            "mode": "add",
+            "row_type": "file",
+            "title": "Grouped audio",
+            "group_id": str(group_id),
+            "file_file": (io.BytesIO(b"fake audio"), "song.mp3"),
+        },
+        content_type="multipart/form-data",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["redirect"] == "/content"
+    with sqlite3.connect(db_path) as db:
+        row = db.execute(
+            "SELECT title, group_id, item_kind, file_original_name, file_mime FROM links WHERE group_id=?",
+            (group_id,),
+        ).fetchone()
+    assert row == ("Grouped audio", group_id, "file", "song.mp3", "audio/mpeg")

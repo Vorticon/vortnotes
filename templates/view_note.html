@@ -53,7 +53,16 @@
     <div class="links-desktop-grid vn-note-attachment-grid">
       {% for a in attachments %}
         <div class="link-tile">
-        <a class="attach-link" href="{{upload_prefix}}/{{a.stored_name}}" target="_blank" draggable="false" data-title="{{a.original_name | e}}">
+        <a class="attach-link"
+           href="{{upload_prefix}}/{{a.stored_name}}"
+           target="_blank"
+           draggable="false"
+           data-title="{{a.original_name | e}}"
+           data-mime="{{ (a.mime or '') | e }}"
+           data-media-url="{{upload_prefix}}/{{a.stored_name}}"
+           data-media-mime="{{ (a.mime or '') | e }}"
+           data-media-title="{{a.original_name | e}}"
+           data-media-playable="{% if a.is_video or a.is_audio %}1{% else %}0{% endif %}">
           <div class="attach-thumb link-thumb" title="{{a.original_name | e}}">
             {% if a.icon_stored_name %}
               <img src="{{upload_prefix}}/{{a.icon_stored_name}}" alt="{{a.original_name | e}}">
@@ -86,6 +95,13 @@
         </div>
         <div class="vn-modal-body" style="flex:1; overflow:hidden;">
           <div id="contentViewBody" class="vn-media-view"></div>
+        </div>
+        <div id="contentViewControls" class="vn-media-controls" hidden>
+          <button type="button" class="btn btn-secondary" id="contentViewPrevBtn">Prev</button>
+          <button type="button" class="btn btn-secondary" id="contentViewNextBtn">Next</button>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewLoop"> Loop current</label>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewContinue"> Continue in folder</label>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewShuffle"> Shuffle</label>
         </div>
       </div>
     </div>
@@ -130,7 +146,128 @@
       applyFit();
     }
 
-    window.vnOpenContentMedia = window.vnOpenContentMedia || function(url, mime, title){
+    const vnMediaPlaybackPrefs = {
+      loop: localStorage.getItem('vnMediaLoop') === '1',
+      continue: localStorage.getItem('vnMediaContinue') === '1',
+      shuffle: localStorage.getItem('vnMediaShuffle') === '1'
+    };
+    let vnMediaPlaylist = [];
+    let vnMediaIndex = -1;
+    let vnMediaShuffleQueue = [];
+    function vnMediaKey(item){
+      return [item.url || '', item.mime || '', item.title || ''].join('\u0001');
+    }
+    function vnNormalizeMediaMode(){
+      if (vnMediaPlaybackPrefs.loop && vnMediaPlaybackPrefs.continue){
+        vnMediaPlaybackPrefs.continue = false;
+        localStorage.setItem('vnMediaContinue', '0');
+      }
+    }
+    vnNormalizeMediaMode();
+    function vnSetMediaMode(mode, enabled, mediaEl){
+      if (mode === 'loop'){
+        vnMediaPlaybackPrefs.loop = !!enabled;
+        if (enabled){
+          vnMediaPlaybackPrefs.continue = false;
+          vnMediaPlaybackPrefs.shuffle = false;
+        }
+      } else if (mode === 'continue'){
+        vnMediaPlaybackPrefs.continue = !!enabled;
+        if (enabled) vnMediaPlaybackPrefs.loop = false;
+      }
+      localStorage.setItem('vnMediaLoop', vnMediaPlaybackPrefs.loop ? '1' : '0');
+      localStorage.setItem('vnMediaContinue', vnMediaPlaybackPrefs.continue ? '1' : '0');
+      localStorage.setItem('vnMediaShuffle', vnMediaPlaybackPrefs.shuffle ? '1' : '0');
+      if (mediaEl) mediaEl.loop = vnMediaPlaybackPrefs.loop;
+    }
+    function vnBuildMediaPlaylist(source, current){
+      const mediaTypes = (m) => m.startsWith('video/') || m.startsWith('audio/');
+      let root = null;
+      try{
+        if (source && source.closest) root = source.closest('.vn-note-attachment-grid');
+      }catch(e){}
+      const nodes = Array.from((root || document).querySelectorAll('[data-media-url][data-media-playable="1"]'));
+      const list = nodes.map((node) => ({
+        url: node.dataset.mediaUrl || node.getAttribute('href') || '',
+        mime: (node.dataset.mediaMime || node.dataset.mime || '').toLowerCase(),
+        title: node.dataset.mediaTitle || node.dataset.title || 'Media'
+      })).filter((item) => item.url && mediaTypes(item.mime));
+      const currentItem = {
+        url: current.url || '',
+        mime: (current.mime || '').toLowerCase(),
+        title: current.title || 'Media'
+      };
+      if (!list.some((item) => vnMediaKey(item) === vnMediaKey(currentItem)) && mediaTypes(currentItem.mime)){
+        list.unshift(currentItem);
+      }
+      return list;
+    }
+    function vnResetShuffleQueue(){
+      vnMediaShuffleQueue = [];
+    }
+    function vnRefillShuffleQueue(){
+      vnMediaShuffleQueue = vnMediaPlaylist
+        .map((_, index) => index)
+        .filter((index) => index !== vnMediaIndex);
+    }
+    function vnRenderMediaControls(mediaEl){
+      const controls = document.getElementById('contentViewControls');
+      const loop = document.getElementById('contentViewLoop');
+      const cont = document.getElementById('contentViewContinue');
+      const shuffle = document.getElementById('contentViewShuffle');
+      const prev = document.getElementById('contentViewPrevBtn');
+      const next = document.getElementById('contentViewNextBtn');
+      if (!controls || !loop || !cont || !shuffle || !prev || !next) return;
+      const playable = !!mediaEl && (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO');
+      controls.hidden = !playable;
+      vnNormalizeMediaMode();
+      loop.checked = vnMediaPlaybackPrefs.loop;
+      cont.checked = vnMediaPlaybackPrefs.continue;
+      shuffle.checked = vnMediaPlaybackPrefs.shuffle;
+      shuffle.disabled = vnMediaPlaybackPrefs.loop;
+      prev.disabled = vnMediaPlaylist.length <= 1;
+      next.disabled = vnMediaPlaylist.length <= 1;
+      loop.onchange = () => {
+        vnSetMediaMode('loop', loop.checked, mediaEl);
+        loop.checked = vnMediaPlaybackPrefs.loop;
+        cont.checked = vnMediaPlaybackPrefs.continue;
+        shuffle.checked = vnMediaPlaybackPrefs.shuffle;
+        shuffle.disabled = vnMediaPlaybackPrefs.loop;
+      };
+      cont.onchange = () => {
+        vnSetMediaMode('continue', cont.checked, mediaEl);
+        loop.checked = vnMediaPlaybackPrefs.loop;
+        cont.checked = vnMediaPlaybackPrefs.continue;
+        shuffle.disabled = vnMediaPlaybackPrefs.loop;
+      };
+      shuffle.onchange = () => {
+        vnMediaPlaybackPrefs.shuffle = shuffle.checked;
+        localStorage.setItem('vnMediaShuffle', shuffle.checked ? '1' : '0');
+      };
+      prev.onclick = () => vnOpenPlaylistOffset(-1);
+      next.onclick = () => vnOpenPlaylistOffset(1);
+      if (mediaEl){
+        mediaEl.loop = vnMediaPlaybackPrefs.loop;
+        mediaEl.addEventListener('ended', () => {
+          if (!vnMediaPlaybackPrefs.loop && vnMediaPlaybackPrefs.continue) vnOpenPlaylistOffset(1);
+        });
+      }
+    }
+    function vnOpenPlaylistOffset(delta){
+      if (vnMediaPlaylist.length <= 1) return;
+      let nextIndex;
+      if (vnMediaPlaybackPrefs.shuffle && vnMediaPlaylist.length > 1){
+        if (!vnMediaShuffleQueue.length) vnRefillShuffleQueue();
+        const queuePos = Math.floor(Math.random() * vnMediaShuffleQueue.length);
+        nextIndex = vnMediaShuffleQueue.splice(queuePos, 1)[0];
+      } else {
+        nextIndex = (vnMediaIndex + delta + vnMediaPlaylist.length) % vnMediaPlaylist.length;
+      }
+      const next = vnMediaPlaylist[nextIndex];
+      window.vnOpenContentMedia(next.url, next.mime, next.title, { playlist: vnMediaPlaylist, index: nextIndex });
+    }
+
+    window.vnOpenContentMedia = window.vnOpenContentMedia || function(url, mime, title, source){
       const bd = document.getElementById('contentViewBackdrop');
       const body = document.getElementById('contentViewBody');
       const tt = document.getElementById('contentViewTitle');
@@ -138,9 +275,19 @@
       if (!bd || !body) return false;
       mime = ((mime || '') + '').toLowerCase();
       const t = title || 'Media';
+      if (source && source.playlist){
+        vnMediaPlaylist = Array.isArray(source.playlist) ? source.playlist : [];
+        vnMediaIndex = Number.isFinite(source.index) ? source.index : -1;
+      } else {
+        vnMediaPlaylist = vnBuildMediaPlaylist(source, { url, mime, title: t });
+        const key = vnMediaKey({ url, mime, title: t });
+        vnMediaIndex = vnMediaPlaylist.findIndex((item) => vnMediaKey(item) === key);
+        vnResetShuffleQueue();
+      }
       if (tt) tt.textContent = t;
       if (modal) modal.className = 'vn-modal vn-media-modal';
       body.innerHTML = '';
+      let mediaEl = null;
 
       if (mime.startsWith('image/')){
         if (modal) modal.classList.add('vn-media-image');
@@ -161,6 +308,7 @@
         v.autoplay = true;
         v.playsInline = true;
         body.appendChild(v);
+        mediaEl = v;
         fitVideoModal(v, modal, body);
       } else if (mime.startsWith('audio/')){
         if (modal) modal.classList.add('vn-media-audio');
@@ -171,6 +319,7 @@
         a.style.width = '100%';
         a.style.maxWidth = '100%';
         body.appendChild(a);
+        mediaEl = a;
       } else {
         const a = document.createElement('a');
         a.href = url;
@@ -180,6 +329,7 @@
         body.appendChild(a);
       }
 
+      vnRenderMediaControls(mediaEl);
       bd.classList.remove('hidden');
       try{ bd.querySelector('video, audio')?.play?.(); }catch(e){}
       return false;
@@ -191,8 +341,10 @@
       }
       const bd = document.getElementById('contentViewBackdrop');
       const body = document.getElementById('contentViewBody');
+      const controls = document.getElementById('contentViewControls');
       if (bd) bd.classList.add('hidden');
       if (body) body.innerHTML = '';
+      if (controls) controls.hidden = true;
     };
 
     // Intercept attachment clicks for image/audio/video and open in modal.
@@ -200,11 +352,11 @@
       const a = e.target && e.target.closest ? e.target.closest('a.attach-link') : null;
       if (!a) return;
       const href = a.getAttribute('href') || '';
-      const mime = guessMimeFromUrl(href);
+      const mime = (a.getAttribute('data-mime') || a.dataset.mediaMime || guessMimeFromUrl(href)).toLowerCase();
       if (!(mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/'))) return;
       e.preventDefault();
       const title = a.getAttribute('data-title') || 'Media';
-      window.vnOpenContentMedia(href, mime, title);
+      window.vnOpenContentMedia(href, mime, title, a);
     }, {passive:false});
   })();
 </script>

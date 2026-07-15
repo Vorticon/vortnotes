@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM python:3.14-alpine
 
-ARG VORTNOTES_VERSION=1.0.9
+ARG VORTNOTES_VERSION=1.0.10
 LABEL org.opencontainers.image.title="VortNotes" \
       org.opencontainers.image.description="Self-hosted notes, content, and focus apps" \
       org.opencontainers.image.version="${VORTNOTES_VERSION}" \

@@ -32,6 +32,9 @@ def register_content_routes(app) -> None:
         "minesweeper": {"title": "Minesweeper", "description": "Clear the field without touching a mine"},
         "breakout": {"title": "Breakout", "description": "Bounce the ball and clear every brick"},
         "simon": {"title": "Sequence Recall", "description": "Watch the sequence and repeat it from memory"},
+        "snake": {"title": "Snake", "description": "Eat apples, grow longer, and avoid your own tail"},
+        "kanban": {"title": "Kanban Board", "description": "Track tasks and link cards to notes"},
+        "calendar": {"title": "Calendar Lite", "description": "A simple local calendar for quick planning"},
         "sticky": {"title": "Sticky Notes", "description": "Quick colorful notes that autosave"},
         "ambient": {"title": "Ambient Focus", "description": "Focus timer with generated ambient soundscapes"},
     }
@@ -40,6 +43,7 @@ def register_content_routes(app) -> None:
         _current_db_name,
         _is_admin_authed,
         _is_unlocked,
+        _title_select_expr,
         current_upload_dir,
         db_guest_can,
         ensure_db_initialized,
@@ -107,6 +111,49 @@ def register_content_routes(app) -> None:
             return render_template("sticky_notes_app.html", notes=notes, can_edit=can_edit)
         if app_id == "ambient":
             return render_template("ambient_focus_app.html")
+        if app_id == "kanban":
+            db = get_db()
+            now = iso_now()
+            count = db.execute("SELECT COUNT(1) AS c FROM kanban_columns").fetchone()["c"]
+            if not count:
+                for order, title in enumerate(("Backlog", "Doing", "Done")):
+                    db.execute(
+                        "INSERT INTO kanban_columns (title, display_order, created_at, updated_at) VALUES (?,?,?,?)",
+                        (title, order, now, now),
+                    )
+                db.commit()
+            columns = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT id, title, display_order FROM kanban_columns ORDER BY display_order ASC, id ASC"
+                ).fetchall()
+            ]
+            cards = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT id, column_id, title, body, note_id, display_order "
+                    "FROM kanban_cards ORDER BY column_id ASC, display_order ASC, id ASC"
+                ).fetchall()
+            ]
+            title_expr = _title_select_expr(db)
+            notes = [
+                dict(row)
+                for row in db.execute(
+                    f"SELECT id, {title_expr} AS title, tag FROM notes ORDER BY updated_at DESC, id DESC LIMIT 500"
+                ).fetchall()
+            ]
+            name = _current_db_name()
+            salt, phash = get_db_password_info(resolve_db_path(name))
+            can_edit = not (salt and phash) or _is_unlocked(name)
+            return render_template(
+                "kanban_app.html",
+                columns=columns,
+                cards=cards,
+                notes=notes,
+                can_edit=can_edit,
+            )
+        if app_id == "calendar":
+            return render_template("calendar_lite_app.html")
         return render_template(
             "content_app.html",
             app_id=app_id,
@@ -668,6 +715,149 @@ def register_content_routes(app) -> None:
             return jsonify({"ok": False, "error": "invalid_id"}), 400
         db = get_db()
         db.execute("DELETE FROM sticky_notes WHERE id=?", (int(note_id_raw),))
+        db.commit()
+        return jsonify({"ok": True})
+
+    def _kanban_payload():
+        return request.get_json(silent=True) or request.form
+
+    def _kanban_int(value, default=None):
+        raw = str(value if value is not None else "").strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
+
+    @app.route("/content/apps/kanban/column/save", methods=["POST"], endpoint="kanban_column_save")
+    def kanban_column_save():
+        gate = _json_gate(_require_write_access(url_for("content_app", app_id="kanban")))
+        if gate:
+            return gate
+        payload = _kanban_payload()
+        column_id = _kanban_int(payload.get("id"))
+        title = str(payload.get("title") or "").strip()[:80]
+        if not title:
+            return jsonify({"ok": False, "error": "title_required"}), 400
+        db = get_db()
+        now = iso_now()
+        if column_id:
+            row = db.execute("SELECT id FROM kanban_columns WHERE id=?", (column_id,)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            db.execute("UPDATE kanban_columns SET title=?, updated_at=? WHERE id=?", (title, now, column_id))
+        else:
+            order_row = db.execute("SELECT COALESCE(MAX(display_order), -1) AS m FROM kanban_columns").fetchone()
+            order_num = int(order_row["m"] if order_row and order_row["m"] is not None else -1) + 1
+            cur = db.execute(
+                "INSERT INTO kanban_columns (title, display_order, created_at, updated_at) VALUES (?,?,?,?)",
+                (title, order_num, now, now),
+            )
+            column_id = int(cur.lastrowid)
+        db.commit()
+        return jsonify({"ok": True, "column": {"id": column_id, "title": title}})
+
+    @app.route("/content/apps/kanban/column/delete", methods=["POST"], endpoint="kanban_column_delete")
+    def kanban_column_delete():
+        gate = _json_gate(_require_write_access(url_for("content_app", app_id="kanban")))
+        if gate:
+            return gate
+        payload = _kanban_payload()
+        column_id = _kanban_int(payload.get("id"))
+        if not column_id:
+            return jsonify({"ok": False, "error": "invalid_id"}), 400
+        db = get_db()
+        remaining = db.execute("SELECT COUNT(1) AS c FROM kanban_columns WHERE id<>?", (column_id,)).fetchone()["c"]
+        if int(remaining or 0) < 1:
+            return jsonify({"ok": False, "error": "last_column"}), 400
+        db.execute("DELETE FROM kanban_columns WHERE id=?", (column_id,))
+        db.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/content/apps/kanban/card/save", methods=["POST"], endpoint="kanban_card_save")
+    def kanban_card_save():
+        gate = _json_gate(_require_write_access(url_for("content_app", app_id="kanban")))
+        if gate:
+            return gate
+        payload = _kanban_payload()
+        card_id = _kanban_int(payload.get("id"))
+        column_id = _kanban_int(payload.get("column_id"))
+        title = str(payload.get("title") or "").strip()[:140]
+        body = str(payload.get("body") or "")[:5000]
+        note_id = _kanban_int(payload.get("note_id"))
+        if not column_id or not title:
+            return jsonify({"ok": False, "error": "column_and_title_required"}), 400
+        db = get_db()
+        if not db.execute("SELECT id FROM kanban_columns WHERE id=?", (column_id,)).fetchone():
+            return jsonify({"ok": False, "error": "column_not_found"}), 404
+        if note_id and not db.execute("SELECT id FROM notes WHERE id=?", (note_id,)).fetchone():
+            note_id = None
+        now = iso_now()
+        if card_id:
+            row = db.execute("SELECT id FROM kanban_cards WHERE id=?", (card_id,)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            db.execute(
+                "UPDATE kanban_cards SET column_id=?, title=?, body=?, note_id=?, updated_at=? WHERE id=?",
+                (column_id, title, body, note_id, now, card_id),
+            )
+        else:
+            order_row = db.execute(
+                "SELECT COALESCE(MAX(display_order), -1) AS m FROM kanban_cards WHERE column_id=?", (column_id,)
+            ).fetchone()
+            order_num = int(order_row["m"] if order_row and order_row["m"] is not None else -1) + 1
+            cur = db.execute(
+                "INSERT INTO kanban_cards (column_id, title, body, note_id, display_order, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (column_id, title, body, note_id, order_num, now, now),
+            )
+            card_id = int(cur.lastrowid)
+        db.commit()
+        return jsonify({"ok": True, "card": {"id": card_id, "column_id": column_id, "title": title, "body": body, "note_id": note_id}})
+
+    @app.route("/content/apps/kanban/card/move", methods=["POST"], endpoint="kanban_card_move")
+    def kanban_card_move():
+        gate = _json_gate(_require_write_access(url_for("content_app", app_id="kanban")))
+        if gate:
+            return gate
+        payload = _kanban_payload()
+        card_id = _kanban_int(payload.get("id"))
+        column_id = _kanban_int(payload.get("column_id"))
+        index = max(0, _kanban_int(payload.get("index"), 0) or 0)
+        if not card_id or not column_id:
+            return jsonify({"ok": False, "error": "invalid_request"}), 400
+        db = get_db()
+        if not db.execute("SELECT id FROM kanban_cards WHERE id=?", (card_id,)).fetchone():
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        if not db.execute("SELECT id FROM kanban_columns WHERE id=?", (column_id,)).fetchone():
+            return jsonify({"ok": False, "error": "column_not_found"}), 404
+        card_ids = [
+            int(row["id"])
+            for row in db.execute(
+                "SELECT id FROM kanban_cards WHERE column_id=? AND id<>? ORDER BY display_order ASC, id ASC",
+                (column_id, card_id),
+            ).fetchall()
+        ]
+        card_ids.insert(min(index, len(card_ids)), card_id)
+        now = iso_now()
+        db.execute("UPDATE kanban_cards SET column_id=?, updated_at=? WHERE id=?", (column_id, now, card_id))
+        for order, cid in enumerate(card_ids):
+            db.execute("UPDATE kanban_cards SET display_order=? WHERE id=?", (order, cid))
+        db.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/content/apps/kanban/card/delete", methods=["POST"], endpoint="kanban_card_delete")
+    def kanban_card_delete():
+        gate = _json_gate(_require_write_access(url_for("content_app", app_id="kanban")))
+        if gate:
+            return gate
+        payload = _kanban_payload()
+        card_id = _kanban_int(payload.get("id"))
+        if not card_id:
+            return jsonify({"ok": False, "error": "invalid_id"}), 400
+        db = get_db()
+        db.execute("DELETE FROM kanban_cards WHERE id=?", (card_id,))
         db.commit()
         return jsonify({"ok": True})
 
@@ -1843,9 +2033,21 @@ def register_content_routes(app) -> None:
         rid = int(rid_raw) if (rid_raw.isdigit()) else None
         return_to = (request.form.get("return_to") or "").strip()
         if not return_to.startswith("/") or return_to.startswith("//"):
-            return_to = url_for("content_edit")
+            return_to = request.referrer or url_for("content")
+            try:
+                parsed_return = urlparse(return_to)
+                if parsed_return.scheme or parsed_return.netloc:
+                    return_to = parsed_return.path or url_for("content")
+                    if parsed_return.query:
+                        return_to += "?" + parsed_return.query
+            except Exception:
+                return_to = url_for("content")
+            if return_to == request.path or return_to.startswith("//") or not return_to.startswith("/"):
+                return_to = url_for("content")
 
         def _save_redirect():
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({"ok": True, "redirect": return_to})
             return redirect(return_to)
 
         def _int_or_none(v: str):

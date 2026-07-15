@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card vn-calendar-shell">
+  <div class="vn-app-header">
+    <div>
+      <h2>Calendar Lite</h2>
+      <div class="muted">A quick local month planner for reminders, errands, and lightweight schedules.</div>
+    </div>
+    <div class="vn-app-actions">
+      <button class="btn primary" type="button" id="vnCalendarToday">Today</button>
+      <a class="btn" href="{{ url_for('content') }}">Back to Content</a>
+    </div>
+  </div>
+  <div class="vn-calendar-toolbar">
+    <button class="btn" type="button" id="vnCalendarPrev">Prev</button>
+    <h3 id="vnCalendarTitle"></h3>
+    <button class="btn" type="button" id="vnCalendarNext">Next</button>
+  </div>
+  <div class="vn-calendar-layout">
+    <main>
+      <div class="vn-calendar-weekdays" aria-hidden="true">
+        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+      </div>
+      <div id="vnCalendarGrid" class="vn-calendar-grid" aria-label="Month calendar"></div>
+    </main>
+    <aside class="vn-calendar-side">
+      <h3 id="vnCalendarSelectedTitle">Selected day</h3>
+      <form id="vnCalendarEventForm">
+        <input type="hidden" id="vnCalendarEventId">
+        <label>Title
+          <input class="input" id="vnCalendarEventTitle" maxlength="120" required placeholder="Dinner, bill, appointment...">
+        </label>
+        <label>Time
+          <input class="input" id="vnCalendarEventTime" type="time">
+        </label>
+        <label>Details
+          <textarea class="input" id="vnCalendarEventDetails" rows="3" maxlength="1000"></textarea>
+        </label>
+        <div class="vn-calendar-form-actions">
+          <button class="btn danger" type="button" id="vnCalendarDelete" hidden>Delete</button>
+          <button class="btn primary" type="submit">Save event</button>
+        </div>
+      </form>
+      <div id="vnCalendarDayList" class="vn-calendar-day-list"></div>
+      <div class="help">Events are stored in this browser. If you want these synced in the database later, that’s a good next upgrade.</div>
+    </aside>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='calendar_lite.js') }}"></script>
+{% endblock %}

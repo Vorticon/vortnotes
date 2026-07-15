@@ -237,5 +237,114 @@
     restart.onclick=reset;difficultyEl?.addEventListener('change',reset);reset();
   }
 
-  if(app==='tetris')startTetris();else if(app==='jewels')startJewels();else if(app==='memory')startMemory();else if(app==='minesweeper')startMinesweeper();else if(app==='breakout')startBreakout();else if(app==='simon')startSimon();
+  function startSnake(){
+    const SIZE = 22, CELL = 24;
+    const DIFFICULTIES = {
+      easy: {speed: 150, multiplier: 1},
+      medium: {speed: 110, multiplier: 1.5},
+      hard: {speed: 78, multiplier: 2}
+    };
+    canvas.width = SIZE * CELL;
+    canvas.height = SIZE * CELL;
+    let snake, apple, dir, nextDir, score, timer, over, settings;
+    const same = (a, b) => a.x === b.x && a.y === b.y;
+    const randomApple = () => {
+      let spot;
+      do {
+        spot = {x: Math.floor(Math.random() * SIZE), y: Math.floor(Math.random() * SIZE)};
+      } while (snake.some(part => same(part, spot)));
+      return spot;
+    };
+    const setDirection = (x, y) => {
+      if (over) return;
+      if (dir.x + x === 0 && dir.y + y === 0) return;
+      nextDir = {x, y};
+    };
+    const updateStats = () => {
+      extraEl.textContent = `Length ${snake.length} · ${settings.multiplier}× points`;
+    };
+    const drawCell = (x, y, color, inset = 2) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * CELL + inset, y * CELL + inset, CELL - inset * 2, CELL - inset * 2);
+    };
+    const draw = () => {
+      ctx.fillStyle = '#080b14';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = 'rgba(255,255,255,.035)';
+      for (let i = 0; i <= SIZE; i++){
+        ctx.beginPath(); ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * CELL); ctx.lineTo(canvas.width, i * CELL); ctx.stroke();
+      }
+      drawCell(apple.x, apple.y, '#ff5f75', 4);
+      snake.forEach((part, index) => {
+        const color = index === 0 ? '#83f7a5' : `hsl(${145 + index * 3}, 72%, ${55 - Math.min(index, 18)}%)`;
+        drawCell(part.x, part.y, color, index === 0 ? 2 : 3);
+      });
+    };
+    const end = () => {
+      over = true;
+      clearInterval(timer);
+      setGameEnded(true);
+      setMessage('Snake tangled — add your initials to save this score.');
+      draw();
+    };
+    const step = () => {
+      dir = nextDir;
+      const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+      if (head.x < 0 || head.y < 0 || head.x >= SIZE || head.y >= SIZE || snake.some(part => same(part, head))){
+        end();
+        return;
+      }
+      snake.unshift(head);
+      if (same(head, apple)){
+        score += Math.round(100 * settings.multiplier + snake.length * 3);
+        setScore(score);
+        apple = randomApple();
+      } else {
+        snake.pop();
+      }
+      updateStats();
+      draw();
+    };
+    const reset = () => {
+      clearInterval(timer);
+      settings = DIFFICULTIES[difficulty()];
+      snake = [{x: 11, y: 11}, {x: 10, y: 11}, {x: 9, y: 11}];
+      dir = {x: 1, y: 0};
+      nextDir = {x: 1, y: 0};
+      score = 0;
+      over = false;
+      setScore(0);
+      setGameEnded(false);
+      setMessage('Use arrows or WASD. Eat apples; avoid walls and yourself.');
+      renderHighScores();
+      apple = randomApple();
+      updateStats();
+      draw();
+      timer = setInterval(step, settings.speed);
+    };
+    document.addEventListener('keydown', e => {
+      const map = {
+        ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
+        ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
+        ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
+        ArrowRight: [1, 0], d: [1, 0], D: [1, 0]
+      };
+      if (!map[e.key]) return;
+      e.preventDefault();
+      setDirection(map[e.key][0], map[e.key][1]);
+    });
+    canvas.addEventListener('pointerdown', e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left - rect.width / 2;
+      const y = e.clientY - rect.top - rect.height / 2;
+      if (Math.abs(x) > Math.abs(y)) setDirection(x > 0 ? 1 : -1, 0);
+      else setDirection(0, y > 0 ? 1 : -1);
+    });
+    restart.onclick = reset;
+    difficultyEl?.addEventListener('change', reset);
+    reset();
+  }
+
+  if(app==='tetris')startTetris();else if(app==='jewels')startJewels();else if(app==='memory')startMemory();else if(app==='minesweeper')startMinesweeper();else if(app==='breakout')startBreakout();else if(app==='simon')startSimon();else if(app==='snake')startSnake();
 })();

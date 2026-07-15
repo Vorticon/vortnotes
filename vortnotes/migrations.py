@@ -32,9 +32,41 @@ def _sticky_notes_v2(db: sqlite3.Connection) -> None:
     db.execute("CREATE INDEX IF NOT EXISTS idx_sticky_notes_updated ON sticky_notes(updated_at DESC, id DESC)")
 
 
+def _kanban_v3(db: sqlite3.Connection) -> None:
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS kanban_columns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            display_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS kanban_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            column_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            note_id INTEGER,
+            display_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(column_id) REFERENCES kanban_columns(id) ON DELETE CASCADE,
+            FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE SET NULL
+        )
+        """)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_kanban_columns_order ON kanban_columns(display_order ASC, id ASC)")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_kanban_cards_column_order "
+        "ON kanban_cards(column_id, display_order ASC, id ASC)"
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     (1, "legacy_schema_baseline", _baseline_v1),
     (2, "sticky_notes", _sticky_notes_v2),
+    (3, "kanban_board", _kanban_v3),
 )
 LATEST_SCHEMA_VERSION = MIGRATIONS[-1][0]
 

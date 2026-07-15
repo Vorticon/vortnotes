@@ -377,8 +377,11 @@
                       <option value="minesweeper">Minesweeper</option>
                       <option value="breakout">Breakout</option>
                       <option value="simon">Sequence Recall</option>
+                      <option value="snake">Snake</option>
                     </optgroup>
                     <optgroup label="Apps">
+                      <option value="kanban">Kanban Board</option>
+                      <option value="calendar">Calendar Lite</option>
                       <option value="sticky">Sticky Notes</option>
                       <option value="ambient">Ambient Focus</option>
                     </optgroup>
@@ -1573,6 +1576,13 @@
     xhr.addEventListener('load', () => {
       const finalUrl = xhr.responseURL || window.location.href;
       if (xhr.status >= 200 && xhr.status < 400){
+        try{
+          const data = JSON.parse(xhr.responseText || '{}');
+          if (data && data.redirect){
+            window.location.href = data.redirect;
+            return;
+          }
+        }catch(e){}
         window.location.href = finalUrl;
         return;
       }
@@ -1842,9 +1852,13 @@
                                           data-title="{{ it.title|e }}" data-url="{{ it.url|e }}" data-target="{{ it.target if it.target else '_blank' }}" data-kind="{{ it.item_kind or 'link' }}"
                                           data-embed="{{ it.embed or 0 }}"
                                           data-group-id=""
+                                          data-media-url="{{ file_url|e }}"
+                                          data-media-mime="{{ fm|e }}"
+                                          data-media-title="{{ (it.file_original_name or it.title)|e }}"
+                                          data-media-playable="{% if fm.startswith('video/') or fm.startswith('audio/') %}1{% else %}0{% endif %}"
                                           data-page="{{ item_page }}" data-position="{{ item_pos }}" data-total-pages="{{ total_pages or 1 }}" data-total-items="{{ total_count or 0 }}"
-                                          onclick='vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }})'
-                                          onkeypress='if(event.key==="Enter"){ vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }}); }'>
+                                          onclick='vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }}, this)'
+                                          onkeypress='if(event.key==="Enter"){ vnOpenContentMedia({{ file_url|tojson }}, {{ fm|tojson }}, {{ (it.file_original_name or it.title)|tojson }}, this); }'>
                   <div class="attach-link" draggable="false" title="{{ (it.file_original_name or it.title)|e }}">
               {% else %}
                 <div class="link-tile {% if can_edit %}content-reorder-item{% endif %}" role="button" tabindex="0"
@@ -2566,6 +2580,14 @@
             return true;
           };
 
+          document.getElementById('vnContentEditForm')?.addEventListener('submit', function(e){
+            e.preventDefault();
+            if (!window.vnContentPrepareEditSubmit()) return;
+            if (!this.reportValidity || this.reportValidity()){
+              vnSubmitContentFormWithProgress(this);
+            }
+          });
+
           window.vnOpenContentProps = function(item){
             if (!item) return;
             const type = item.dataset.itemType || '';
@@ -3118,8 +3140,11 @@
                         <option value="minesweeper">Minesweeper</option>
                         <option value="breakout">Breakout</option>
                         <option value="simon">Sequence Recall</option>
+                        <option value="snake">Snake</option>
                       </optgroup>
                       <optgroup label="Apps">
+                        <option value="kanban">Kanban Board</option>
+                        <option value="calendar">Calendar Lite</option>
                         <option value="sticky">Sticky Notes</option>
                         <option value="ambient">Ambient Focus</option>
                       </optgroup>
@@ -3240,6 +3265,13 @@
         </div>
         <div class="vn-modal-body">
           <div id="contentViewBody" class="vn-media-view"></div>
+        </div>
+        <div id="contentViewControls" class="vn-media-controls" hidden>
+          <button type="button" class="btn btn-secondary" id="contentViewPrevBtn">Prev</button>
+          <button type="button" class="btn btn-secondary" id="contentViewNextBtn">Next</button>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewLoop"> Loop current</label>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewContinue"> Continue in folder</label>
+          <label class="vn-media-toggle"><input type="checkbox" id="contentViewShuffle"> Shuffle</label>
         </div>
       </div>
     </div>
@@ -3368,7 +3400,128 @@
           applyFit();
         }
 
-        window.vnOpenContentMedia = function(url, mime, title){
+        const vnMediaPlaybackPrefs = {
+          loop: localStorage.getItem('vnMediaLoop') === '1',
+          continue: localStorage.getItem('vnMediaContinue') === '1',
+          shuffle: localStorage.getItem('vnMediaShuffle') === '1'
+        };
+        let vnMediaPlaylist = [];
+        let vnMediaIndex = -1;
+        let vnMediaShuffleQueue = [];
+        function vnMediaKey(item){
+          return [item.url || '', item.mime || '', item.title || ''].join('\u0001');
+        }
+        function vnNormalizeMediaMode(){
+          if (vnMediaPlaybackPrefs.loop && vnMediaPlaybackPrefs.continue){
+            vnMediaPlaybackPrefs.continue = false;
+            localStorage.setItem('vnMediaContinue', '0');
+          }
+        }
+        vnNormalizeMediaMode();
+        function vnSetMediaMode(mode, enabled, mediaEl){
+          if (mode === 'loop'){
+            vnMediaPlaybackPrefs.loop = !!enabled;
+            if (enabled){
+              vnMediaPlaybackPrefs.continue = false;
+              vnMediaPlaybackPrefs.shuffle = false;
+            }
+          } else if (mode === 'continue'){
+            vnMediaPlaybackPrefs.continue = !!enabled;
+            if (enabled) vnMediaPlaybackPrefs.loop = false;
+          }
+          localStorage.setItem('vnMediaLoop', vnMediaPlaybackPrefs.loop ? '1' : '0');
+          localStorage.setItem('vnMediaContinue', vnMediaPlaybackPrefs.continue ? '1' : '0');
+          localStorage.setItem('vnMediaShuffle', vnMediaPlaybackPrefs.shuffle ? '1' : '0');
+          if (mediaEl) mediaEl.loop = vnMediaPlaybackPrefs.loop;
+        }
+        function vnBuildMediaPlaylist(source, current){
+          const mediaTypes = (m) => m.startsWith('video/') || m.startsWith('audio/');
+          let root = null;
+          try{
+            if (source && source.closest) root = source.closest('.links-desktop-grid');
+          }catch(e){}
+          const nodes = Array.from((root || document).querySelectorAll('[data-media-url][data-media-playable="1"]'));
+          const list = nodes.map((node) => ({
+            url: node.dataset.mediaUrl || '',
+            mime: (node.dataset.mediaMime || '').toLowerCase(),
+            title: node.dataset.mediaTitle || node.dataset.title || 'Media'
+          })).filter((item) => item.url && mediaTypes(item.mime));
+          const currentItem = {
+            url: current.url || '',
+            mime: (current.mime || '').toLowerCase(),
+            title: current.title || 'Media'
+          };
+          if (!list.some((item) => vnMediaKey(item) === vnMediaKey(currentItem)) && mediaTypes(currentItem.mime)){
+            list.unshift(currentItem);
+          }
+          return list;
+        }
+        function vnResetShuffleQueue(){
+          vnMediaShuffleQueue = [];
+        }
+        function vnRefillShuffleQueue(){
+          vnMediaShuffleQueue = vnMediaPlaylist
+            .map((_, index) => index)
+            .filter((index) => index !== vnMediaIndex);
+        }
+        function vnRenderMediaControls(mediaEl){
+          const controls = document.getElementById('contentViewControls');
+          const loop = document.getElementById('contentViewLoop');
+          const cont = document.getElementById('contentViewContinue');
+          const shuffle = document.getElementById('contentViewShuffle');
+          const prev = document.getElementById('contentViewPrevBtn');
+          const next = document.getElementById('contentViewNextBtn');
+          if (!controls || !loop || !cont || !shuffle || !prev || !next) return;
+          const playable = !!mediaEl && (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO');
+          controls.hidden = !playable;
+          vnNormalizeMediaMode();
+          loop.checked = vnMediaPlaybackPrefs.loop;
+          cont.checked = vnMediaPlaybackPrefs.continue;
+          shuffle.checked = vnMediaPlaybackPrefs.shuffle;
+          shuffle.disabled = vnMediaPlaybackPrefs.loop;
+          prev.disabled = vnMediaPlaylist.length <= 1;
+          next.disabled = vnMediaPlaylist.length <= 1;
+          loop.onchange = () => {
+            vnSetMediaMode('loop', loop.checked, mediaEl);
+            loop.checked = vnMediaPlaybackPrefs.loop;
+            cont.checked = vnMediaPlaybackPrefs.continue;
+            shuffle.checked = vnMediaPlaybackPrefs.shuffle;
+            shuffle.disabled = vnMediaPlaybackPrefs.loop;
+          };
+          cont.onchange = () => {
+            vnSetMediaMode('continue', cont.checked, mediaEl);
+            loop.checked = vnMediaPlaybackPrefs.loop;
+            cont.checked = vnMediaPlaybackPrefs.continue;
+            shuffle.disabled = vnMediaPlaybackPrefs.loop;
+          };
+          shuffle.onchange = () => {
+            vnMediaPlaybackPrefs.shuffle = shuffle.checked;
+            localStorage.setItem('vnMediaShuffle', shuffle.checked ? '1' : '0');
+          };
+          prev.onclick = () => vnOpenPlaylistOffset(-1);
+          next.onclick = () => vnOpenPlaylistOffset(1);
+          if (mediaEl){
+            mediaEl.loop = vnMediaPlaybackPrefs.loop;
+            mediaEl.addEventListener('ended', () => {
+              if (!vnMediaPlaybackPrefs.loop && vnMediaPlaybackPrefs.continue) vnOpenPlaylistOffset(1);
+            });
+          }
+        }
+        function vnOpenPlaylistOffset(delta){
+          if (vnMediaPlaylist.length <= 1) return;
+          let nextIndex;
+          if (vnMediaPlaybackPrefs.shuffle && vnMediaPlaylist.length > 1){
+            if (!vnMediaShuffleQueue.length) vnRefillShuffleQueue();
+            const queuePos = Math.floor(Math.random() * vnMediaShuffleQueue.length);
+            nextIndex = vnMediaShuffleQueue.splice(queuePos, 1)[0];
+          } else {
+            nextIndex = (vnMediaIndex + delta + vnMediaPlaylist.length) % vnMediaPlaylist.length;
+          }
+          const next = vnMediaPlaylist[nextIndex];
+          window.vnOpenContentMedia(next.url, next.mime, next.title, { playlist: vnMediaPlaylist, index: nextIndex });
+        }
+
+        window.vnOpenContentMedia = function(url, mime, title, source){
           const bd = document.getElementById('contentViewBackdrop');
           const body = document.getElementById('contentViewBody');
           const tt = document.getElementById('contentViewTitle');
@@ -3376,9 +3529,19 @@
 if (!bd || !body) return false;
           mime = ((mime || '') + '').toLowerCase();
           const t = title || 'Media';
+          if (source && source.playlist){
+            vnMediaPlaylist = Array.isArray(source.playlist) ? source.playlist : [];
+            vnMediaIndex = Number.isFinite(source.index) ? source.index : -1;
+          } else {
+            vnMediaPlaylist = vnBuildMediaPlaylist(source, { url, mime, title: t });
+            const key = vnMediaKey({ url, mime, title: t });
+            vnMediaIndex = vnMediaPlaylist.findIndex((item) => vnMediaKey(item) === key);
+            vnResetShuffleQueue();
+          }
           if (tt) tt.textContent = t;
           if (modal) modal.className = 'vn-modal vn-media-modal';
 body.innerHTML = '';
+          let mediaEl = null;
 
           if (mime.startsWith('image/')){
             if (modal) modal.classList.add('vn-media-image');
@@ -3399,6 +3562,7 @@ body.innerHTML = '';
             v.autoplay = true;
             v.playsInline = true;
             body.appendChild(v);
+            mediaEl = v;
             fitVideoModal(v, modal, body);
                     } else if (mime.startsWith('audio/')){
             if (modal) modal.classList.add('vn-media-audio');
@@ -3409,6 +3573,7 @@ body.innerHTML = '';
             a.style.width = '100%';
             a.style.maxWidth = '100%';
             body.appendChild(a);
+            mediaEl = a;
           } else {
             if (modal) modal.classList.add('vn-media-file');
             const a = document.createElement('a');
@@ -3418,6 +3583,7 @@ body.innerHTML = '';
             a.textContent = 'Open file';
             body.appendChild(a);
           }
+          vnRenderMediaControls(mediaEl);
           bd.classList.remove('hidden');
           try{ bd.querySelector('video, audio')?.play?.(); }catch(e){}
           return false;
@@ -3429,8 +3595,10 @@ body.innerHTML = '';
           }
           const bd = document.getElementById('contentViewBackdrop');
           const body = document.getElementById('contentViewBody');
+          const controls = document.getElementById('contentViewControls');
           if (bd) bd.classList.add('hidden');
           if (body) body.innerHTML = '';
+          if (controls) controls.hidden = true;
         };
 
 
@@ -3453,6 +3621,19 @@ body.innerHTML = '';
           grid.dataset.groupId = String(currentGid || '');
           grid.dataset.page = String(payload.page || 1);
           grid.dataset.pageSize = '32';
+          grid.style.minHeight = '180px';
+          grid.style.alignContent = 'start';
+
+          if (!items.length){
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.style.gridColumn = '1 / -1';
+            empty.style.padding = '24px';
+            empty.style.textAlign = 'center';
+            empty.style.pointerEvents = 'none';
+            empty.textContent = 'No items yet. Right-click here to add one to this group.';
+            grid.appendChild(empty);
+          }
 
           for (const it of items){
             const tile = document.createElement('div');
@@ -3486,6 +3667,12 @@ body.innerHTML = '';
             const fileUrl = (kind === 'file')
               ? (((it.url || '') + '').startsWith('/') ? it.url : ('{{ upload_prefix }}/' + (it.url || '')))
               : '';
+            if (kind === 'file' && (fm.startsWith('image/') || fm.startsWith('video/') || fm.startsWith('audio/'))){
+              tile.dataset.mediaUrl = fileUrl;
+              tile.dataset.mediaMime = fm;
+              tile.dataset.mediaTitle = it.file_original_name || it.title || 'File';
+              tile.dataset.mediaPlayable = (fm.startsWith('video/') || fm.startsWith('audio/')) ? '1' : '0';
+            }
             let a;
 
             if (kind === 'app'){
@@ -3520,8 +3707,8 @@ body.innerHTML = '';
                 a.setAttribute('role','button');
                 a.setAttribute('tabindex','0');
                 a.title = titleTxt;
-                a.onclick = () => window.vnOpenContentMedia(fileUrl, fm, titleTxt);
-                a.onkeypress = (e) => { if (e.key === 'Enter') window.vnOpenContentMedia(fileUrl, fm, titleTxt); };
+                a.onclick = () => window.vnOpenContentMedia(fileUrl, fm, titleTxt, tile);
+                a.onkeypress = (e) => { if (e.key === 'Enter') window.vnOpenContentMedia(fileUrl, fm, titleTxt, tile); };
               } else {
                 a = document.createElement('a');
                 a.className = 'attach-link';
@@ -4165,7 +4352,17 @@ const m = String(mime||'').toLowerCase();
       if (!b) return;
 
       if (!items.length){
-        b.innerHTML = '<div class="muted" style="padding:8px;">No items</div>';
+        b.innerHTML = `<div class="links-desktop-grid vn-grid-8"
+                            data-group-id="${String(currentGid || '')}"
+                            data-page="${String(currentPage || 1)}"
+                            data-page-size="32"
+                            style="min-height:180px;align-content:start;">
+                         <div class="muted" style="grid-column:1/-1;padding:24px;text-align:center;pointer-events:none;">
+                           No items yet. Right-click here to add one to this group.
+                         </div>
+                       </div>`;
+        const grid = b.querySelector('.links-desktop-grid');
+        if (grid && window.vnMakeContentReorder) window.vnMakeContentReorder(grid, {groupId: String(currentGid || ''), page: currentPage || 1, pageSize: 32});
       } else {
         b.innerHTML = items.map(it => {
           const safeTitle = (it.title || '').replace(/"/g,'&quot;');
